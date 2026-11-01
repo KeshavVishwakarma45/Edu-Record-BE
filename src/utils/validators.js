@@ -9,6 +9,15 @@ export const objectId = () =>
     'string.hex': '{{#label}} must be a valid id',
   });
 
+// Email address, compared in lower case (tlds: false accepts any domain, e.g. .in or .local)
+export const email = () =>
+  Joi.string()
+    .trim()
+    .lowercase()
+    .email({ tlds: { allow: false } })
+    .max(254)
+    .messages({ 'string.email': 'Enter a valid email address' });
+
 // Indian mobile number: 10 digits starting with 6-9
 export const mobile = () =>
   Joi.string()
@@ -29,6 +38,8 @@ export function listQuery(sortFields, extra = {}) {
       .valid(...sortValues)
       .default(sortValues[0]),
     search: Joi.string().trim().max(100).allow(''),
+    // Used only in the Super Admin's "All institutes" view, to show one institute
+    instituteId: objectId().allow(''),
     ...extra,
   });
 }
