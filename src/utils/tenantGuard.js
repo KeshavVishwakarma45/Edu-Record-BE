@@ -7,11 +7,12 @@
 // populate() runs its own query, so pass the tenant along:
 //   .populate({ path: 'affiliationId', match: { tenantId: req.scope.tenantId } })
 //
-// Only two places may bypass it, always explicitly with .setOptions({ skipTenantGuard: true }):
-//   1. login (auth.service.js): the tenant is not known until the user is found
-//   2. findScopedOr404 (utils/findScoped.js): only checks whether an id exists elsewhere,
+// Only three places may bypass it, always explicitly with .setOptions({ skipTenantGuard: true }):
+//   1. login (auth.service.js): the tenant is not known until the user is found by email
+//   2. invite / password links (auth.service.js): the user is found by the hash of a secret token
+//   3. findScopedOr404 (utils/findScoped.js): only checks whether an id exists elsewhere,
 //      to audit the attempt; it never returns that record
-// Nowhere else. A pull request adding a third bypass needs the project owner's review.
+// Nowhere else. A pull request adding another bypass needs the project owner's review.
 
 const GUARDED_QUERIES = [
   'countDocuments',

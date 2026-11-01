@@ -13,13 +13,17 @@ const cookieOptions = {
   path: '/api/v1/auth',
 };
 
-export const login = asyncHandler(async (req, res) => {
-  const { refreshToken, ...result } = await authService.login(req.body);
+// Sends the session to the client: refresh token in the cookie, the rest in the body
+function sendSession(res, { refreshToken, ...result }) {
   res.cookie(REFRESH_COOKIE, refreshToken, {
     ...cookieOptions,
     maxAge: authService.REFRESH_TOKEN_DAYS * 24 * 60 * 60 * 1000,
   });
   sendSuccess(res, result);
+}
+
+export const login = asyncHandler(async (req, res) => {
+  sendSession(res, await authService.login(req.body));
 });
 
 export const refresh = asyncHandler(async (req, res) => {
@@ -36,4 +40,12 @@ export const logout = asyncHandler(async (req, res) => {
 export const me = asyncHandler(async (req, res) => {
   const result = await authService.me(req.user.id, req.user.tenantId);
   sendSuccess(res, result);
+});
+
+export const checkSetupLink = asyncHandler(async (req, res) => {
+  sendSuccess(res, await authService.checkSetupToken(req.params.token));
+});
+
+export const useSetupLink = asyncHandler(async (req, res) => {
+  sendSession(res, await authService.useSetupToken(req.params.token, req.body.password));
 });
