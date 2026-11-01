@@ -1,15 +1,19 @@
 // Fills the database with starting data for development:  npm run seed
 //
-// Safe to run again: every record is found by its natural key (name, short code, mobile...)
+// Safe to run again: every record is found by its natural key (name, short code, email...)
 // and updated in place, so re-running resets the seed records and touches nothing else.
-// Records you created yourself (e.g. a new course) are never deleted.
+// Records you created yourself (e.g. a new course) are never deleted. The organisation is reset to
+// the seed setup (SSISM + SSEC combined in one unit with the default roles).
 // The data itself is listed in seedData.js (setup and users) and seedStudents.js.
 import mongoose from 'mongoose';
 import bcrypt from 'bcrypt';
 import { env } from '../config/env.js';
 import { connectDB, disconnectDB } from '../config/db.js';
 import '../config/models.js';
-import { ROLE_LABELS } from '../constants/roles.js';
+import { ROLE_TEMPLATES } from '../constants/roleTemplates.js';
+import { DEFAULT_DEPARTMENTS } from '../constants/defaultDepartments.js';
+import { OWNER_TYPES } from '../constants/ownerTypes.js';
+import { USER_STATUSES } from '../constants/statuses.js';
 import { buildExamTerms } from '../constants/coursePatterns.js';
 import { BCRYPT_ROUNDS } from '../modules/auth/auth.service.js';
 import { Tenant } from '../modules/institutes/tenant.model.js';
@@ -19,6 +23,8 @@ import { Affiliation } from '../modules/institutes/affiliation.model.js';
 import { Department } from '../modules/institutes/department.model.js';
 import { Course } from '../modules/courses/course.model.js';
 import { User } from '../modules/users/user.model.js';
+import { Unit } from '../modules/organisation/unit.model.js';
+import { Role } from '../modules/roles/role.model.js';
 import { Student } from '../modules/students/student.model.js';
 import { seedData } from './seedData.js';
 import { seedStudents } from './seedStudents.js';
@@ -38,11 +44,15 @@ async function seed() {
     process.exit(1);
   }
   await connectDB();
-  // Make sure unique indexes exist before writing, so duplicates are rejected
-  for (const model of Object.values(mongoose.models)) await model.init();
 
   const tenant = await upsert(Tenant, { name: seedData.tenant.name }, seedData.tenant);
   const tenantId = tenant._id;
+
+  // Seed users from before email login (no email) are removed first, so the unique email
+  // index below can be built
+  await User.deleteMany({ tenantId, email: { $exists: false } });
+  // Make the indexes match the models (also drops old ones, e.g. the former unique mobile index)
+  for (const model of Object.values(mongoose.models)) await model.syncIndexes();
 
   const universities = {};
   for (const university of seedData.universities) {
@@ -65,7 +75,7 @@ async function seed() {
     );
 
     const departments = {};
-    for (const [index, name] of seedData.departments.entries()) {
+    for (const [index, name] of DEFAULT_DEPARTMENTS.entries()) {
       departments[name] = await upsert(
         Department,
         { ...scope, name },
@@ -104,34 +114,64 @@ async function seed() {
     institutes[institute.shortCode] = { ...saved.toObject(), departments };
   }
 
-  // One login per institute-level role per institute, plus tenant-wide admins
+  // The unit: SSISM + SSEC share one set of roles and staff
+  const memberIds = seedData.unit.institutes.map((code) => institutes[code]._id);
+  const unit = await upsert(
+    Unit,
+    { tenantId, name: seedData.unit.name },
+    { instituteIds: memberIds },
+  );
+  await Institute.updateMany({ tenantId, _id: { $in: memberIds } }, { $set: { unitId: unit._id } });
+  // Roles and access of the institutes as separate owners no longer apply once combined
+  await Role.deleteMany({
+    tenantId,
+    ownerType: OWNER_TYPES.INSTITUTE,
+    ownerId: { $in: memberIds },
+  });
+  await User.updateMany({ tenantId }, { $pull: { access: { ownerId: { $in: memberIds } } } });
+
+  const unitOwner = { ownerType: OWNER_TYPES.UNIT, ownerId: unit._id };
+  const roles = {};
+  for (const template of ROLE_TEMPLATES) {
+    roles[template.name] = await upsert(
+      Role,
+      { tenantId, ...unitOwner, name: template.name },
+      { description: template.description, permissions: template.permissions },
+    );
+  }
+
+  // Users log in by email
   const passwordHash = await bcrypt.hash(env.SEED_PASSWORD, BCRYPT_ROUNDS);
   const loginTable = [];
   for (const user of seedData.users) {
-    const access = user.access.map(({ institute, role, department }) => ({
-      instituteId: institutes[institute]._id,
-      role,
-      departmentId: department ? institutes[institute].departments[department]._id : null,
-    }));
+    const access = user.role
+      ? [{ ...unitOwner, roleId: roles[user.role]._id, departmentIds: [] }]
+      : [];
     await upsert(
       User,
-      { tenantId, mobile: user.mobile },
-      { name: user.name, passwordHash, isActive: true, access, tokenVersion: 0 },
+      { tenantId, email: user.email },
+      {
+        name: user.name,
+        passwordHash,
+        status: USER_STATUSES.ACTIVE,
+        isSuperAdmin: Boolean(user.isSuperAdmin),
+        access,
+        tokenVersion: 0,
+      },
     );
     loginTable.push({
-      Mobile: user.mobile,
-      Name: user.name,
-      Institutes: user.access.map((a) => a.institute).join(' + '),
-      Role: ROLE_LABELS[user.access[0].role],
-      Department: user.access[0].department ?? '',
+      Email: user.email,
+      Password: env.SEED_PASSWORD,
+      Role: user.isSuperAdmin ? 'Super Admin' : user.role,
+      Institutes: seedData.unit.institutes.join(' + '),
     });
   }
 
   const studentCount = Object.values(seedStudents).flat().length;
-  console.info(`\nSeed complete: ${loginTable.length} users, ${studentCount} sample students.`);
   console.info(
-    `Every user below logs in with the password "${env.SEED_PASSWORD}" (SEED_PASSWORD).\n`,
+    `\nSeed complete: ${loginTable.length} users, ${ROLE_TEMPLATES.length} shared roles, ${studentCount} sample students.`,
   );
+  console.info('Log in with the email and password below (password = SEED_PASSWORD in .env).\n');
   console.table(loginTable);
 }
 

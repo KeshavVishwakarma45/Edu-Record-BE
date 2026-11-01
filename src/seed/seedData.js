@@ -1,6 +1,5 @@
 // The starting data used by seed.js. Change values here, then run `npm run seed` again.
-// Mobile numbers are fake: 90... tenant-wide, 91... SSISM, 92... SSEC.
-import { ROLES } from '../constants/roles.js';
+// SSISM and SSEC are combined into one unit that shares roles and staff (ADR-016).
 import { COURSE_PATTERNS } from '../constants/coursePatterns.js';
 
 const yearCourse = (name, shortCode, branch = '') => ({
@@ -10,37 +9,6 @@ const yearCourse = (name, shortCode, branch = '') => ({
   pattern: COURSE_PATTERNS.YEAR,
   duration: 3,
 });
-
-// The institute-level roles: each institute gets one user per role
-const instituteUsers = (institute, prefix) =>
-  [
-    { mobile: `${prefix}00000001`, name: `${institute} Principal`, role: ROLES.PRINCIPAL },
-    { mobile: `${prefix}00000002`, name: `${institute} Exam Clerk`, role: ROLES.EXAM_CLERK },
-    { mobile: `${prefix}00000003`, name: `${institute} TC Clerk`, role: ROLES.TC_CLERK },
-    { mobile: `${prefix}00000004`, name: `${institute} Accounts`, role: ROLES.ACCOUNTS },
-    // One department in-charge per clearance department (Account Dept is the Accounts user)
-    {
-      mobile: `${prefix}00000005`,
-      name: `${institute} Library In-charge`,
-      role: ROLES.DEPT_INCHARGE,
-      department: 'Library',
-    },
-    {
-      mobile: `${prefix}00000006`,
-      name: `${institute} Sports In-charge`,
-      role: ROLES.DEPT_INCHARGE,
-      department: 'Sports',
-    },
-    {
-      mobile: `${prefix}00000007`,
-      name: `${institute} Computer Dept In-charge`,
-      role: ROLES.DEPT_INCHARGE,
-      department: 'Computer Dept',
-    },
-  ].map(({ role, department, ...user }) => ({
-    ...user,
-    access: [{ institute, role, department }],
-  }));
 
 export const seedData = {
   tenant: {
@@ -103,27 +71,15 @@ export const seedData = {
     },
   ],
 
-  // Clearance departments, in order, all mandatory (open question Q5 may add more)
-  departments: ['Sports', 'Library', 'Computer Dept', 'Account Dept'],
+  // Clearance departments: constants/defaultDepartments.js (the same list a new institute gets)
 
+  // SSISM and SSEC run combined: one shared set of roles (the default templates) and staff.
+  // The Super Admin can separate them again on the Organisation page.
+  unit: { name: 'Sant Singaji Education Society', institutes: ['SSISM', 'SSEC'] },
+
+  // Login is by email. `role` is a role name of the unit; the Super Admin needs no role.
   users: [
-    {
-      mobile: '9000000000',
-      name: 'Platform Admin',
-      access: [
-        { institute: 'SSISM', role: ROLES.PLATFORM_ADMIN },
-        { institute: 'SSEC', role: ROLES.PLATFORM_ADMIN },
-      ],
-    },
-    {
-      mobile: '9000000001',
-      name: 'Society Admin',
-      access: [
-        { institute: 'SSISM', role: ROLES.SOCIETY_ADMIN },
-        { institute: 'SSEC', role: ROLES.SOCIETY_ADMIN },
-      ],
-    },
-    ...instituteUsers('SSISM', '91'),
-    ...instituteUsers('SSEC', '92'),
+    { email: 'superadmin@singaji.in', name: 'Super Admin', isSuperAdmin: true },
+    { email: 'admin@singaji.in', name: 'Admin', role: 'Admin' },
   ],
 };
