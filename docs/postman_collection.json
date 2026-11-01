@@ -52,14 +52,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"mobile\": \"{{mobile}}\",\n  \"password\": \"{{password}}\"\n}"
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/auth/login",
               "host": ["{{baseUrl}}"],
               "path": ["auth", "login"]
             },
-            "description": "Mobile + password. Saves accessToken and the first instituteId. Also sets the httpOnly refresh cookie."
+            "description": "Email + password. Saves accessToken and the first instituteId. Also sets the httpOnly refresh cookie."
           }
         },
         {
@@ -157,14 +157,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"mobile\": \"{{mobile}}\",\n  \"password\": \"wrong-password\"\n}"
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"wrong-password\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/auth/login",
               "host": ["{{baseUrl}}"],
               "path": ["auth", "login"]
             },
-            "description": "After 5 failed attempts in 15 minutes the API answers 429 for this mobile."
+            "description": "After 5 failed attempts in 15 minutes the API answers 429 for this email."
           }
         }
       ]
@@ -256,7 +256,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["courses", "options"]
             },
-            "description": "Affiliation choices. Society Admin and Principal only."
+            "description": "Affiliation choices. Super Admin, Admin and Principal only."
           }
         },
         {
@@ -330,7 +330,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["courses"]
             },
-            "description": "Society Admin and Principal only. Get affiliationId from Course form options. examTerms is optional."
+            "description": "Super Admin, Admin and Principal only. Get affiliationId from Course form options. examTerms is optional."
           }
         },
         {

@@ -24,8 +24,8 @@
 ## Checklist
 
 - [ ] Follows the courses module pattern: model, validation, service, controller, routes
-- [ ] Every protected route runs auth → tenantScope → requireRole → validate → controller
+- [ ] Every protected route runs auth → tenantScope → requirePermission → validate → controller
 - [ ] Every query starts from `scoped(req)`; one record by id via `findScopedOr404`; every create/update/delete calls `audit()`
 - [ ] New model registered in `src/config/models.js`; every index starts with `tenantId`
-- [ ] No hard-coded role, status or category strings; shared constants changed in Edu-Record too
+- [ ] New permissions added to `constants/permissions.js` in both repos; no hard-coded role, status or category strings
 - [ ] `npm run lint` and `npm test` pass

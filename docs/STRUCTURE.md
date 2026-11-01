@@ -29,7 +29,7 @@ edu-backend/
 │   ├── adr/                   Architecture Decision Records (one file per decision) + template
 │   ├── handover/README.md     handover notes before the Day 15 swap
 │   ├── postman_collection.json    every auth and courses request
-│   └── postman_environment.json   Postman variables (API address, mobile, password)
+│   └── postman_environment.json   Postman variables (API address, email, password)
 │
 ├── scripts/
 │   └── localDb.js             npm run db:local: one-node local MongoDB replica set (no Atlas needed)
@@ -44,21 +44,23 @@ edu-backend/
 │   │   └── models.js          loads every model at start-up (add each new model here)
 │   │
 │   ├── constants/             values used instead of typed strings
-│   │   ├── roles.js           ★ 7 roles, STAFF_ROLES, COURSE_WRITE_ROLES, ROLE_LABELS
+│   │   ├── permissions.js     ★ every permission + groups and labels for the Roles screen
+│   │   ├── roleTemplates.js   starting roles: Admin, Principal, Exam Clerk, TC Clerk, Accounts, Dept In-charge
+│   │   ├── ownerTypes.js      institute / unit: who owns roles and staff
 │   │   ├── statuses.js        ★ document statuses (HND-01), student statuses (STU-06), colours
 │   │   ├── categories.js      ★ GEN, OBC, SC, ST, EWS
 │   │   ├── coursePatterns.js  ★ semester / year, buildExamTerms()
 │   │   ├── genders.js         ★ Male, Female, Other
-│   │   └── auditActions.js    CREATE, UPDATE, DELETE, ACCESS_DENIED, ACCESS_DENIED_RECORD
+│   │   └── auditActions.js    CREATE, UPDATE, DELETE, ACCESS_DENIED..., INVITE, COMBINE, SEPARATE
 │   │                          ★ = must stay identical to the frontend repo's copy
 │   │
 │   ├── middleware/            the request pipeline
 │   │   ├── auth.js            1. who is calling? checks the access token, loads the user
 │   │   ├── tenantScope.js     2. which institute? reads X-Institute-Id, checks access, sets req.scope
-│   │   ├── requireRole.js     3. may this role do it?
+│   │   ├── requirePermission.js  3. may this role do it? (+ requireSuperAdmin)
 │   │   ├── validate.js        4. is the input correct? runs Joi schemas on params, query, body
 │   │   ├── error.js           404 for unknown routes + the one error formatter
-│   │   ├── rateLimit.js       login: 5 failed attempts per mobile per 15 minutes
+│   │   ├── rateLimit.js       login: 5 failed attempts per email per 15 minutes
 │   │   └── upload.js          multer: images ≤ 2 MB, PDFs ≤ 5 MB, content checked
 │   │
 │   ├── utils/                 small shared helpers
@@ -68,9 +70,11 @@ edu-backend/
 │   │   ├── asyncHandler.js    passes errors from async controllers to the error middleware
 │   │   ├── scoped.js          scoped(req) = { tenantId, instituteId } for every query
 │   │   ├── findScoped.js      findScopedOr404: one record by id, 404 + audit if it is elsewhere
+│   │   ├── access.js          finds a user's role and permissions in an institute (direct or via its unit)
+│   │   ├── setupLink.js       one-time invite / password links (only a hash is stored)
 │   │   ├── tenantGuard.js     Mongoose plugin: blocks queries without tenantId
 │   │   ├── actorFields.js     Mongoose plugin: adds createdBy / updatedBy
-│   │   ├── validators.js      Joi helpers: objectId, mobile, idParams, listQuery
+│   │   ├── validators.js      Joi helpers: objectId, email, mobile, idParams, listQuery
 │   │   ├── listQuery.js       paging, sorting and safe search for list services
 │   │   ├── audit.js           audit(): writes one audit log entry
 │   │   ├── storage.js         save / getStream / remove for uploaded files (private folder)
@@ -82,7 +86,9 @@ edu-backend/
 │   │   ├── courses/           ★ EXAMPLE MODULE: model, validation, service, controller, routes, README
 │   │   ├── files/             File model + GET /files/:id (serves uploads after all checks)
 │   │   ├── audit/             AuditLog model (append-only)
-│   │   ├── users/             User model (mobile login, access per institute)
+│   │   ├── organisation/      Unit model; combine / separate institutes (Super Admin)
+│   │   ├── roles/             Role model + roles API (roles made from permissions)
+│   │   ├── users/             User model + users API: list, invite, change role, links, disable
 │   │   ├── institutes/        Tenant, Institute, University, Affiliation, Department models (Module A adds routes)
 │   │   ├── students/          Student model (Module A adds routes, import, screens)
 │   │   ├── results/           README only: RES-01, RES-03 (Module A)
@@ -95,7 +101,7 @@ edu-backend/
 │   │
 │   └── seed/
 │       ├── seed.js            npm run seed: creates or resets the starting data (safe to re-run)
-│       ├── seedData.js        tenant, institutes, universities, courses, departments, 16 users
+│       ├── seedData.js        tenant, institutes, universities, courses, departments, unit, 2 users
 │       └── seedStudents.js    20 made-up sample students
 │
 └── tests/                     npm test (Jest + Supertest + in-memory MongoDB replica set)
@@ -110,6 +116,9 @@ edu-backend/
     ├── auth.test.js               login, refresh cookie, logout, rate limit
     ├── files.test.js              files only for their own institute
     ├── studentModel.test.js       student unique rules and tenant guard
+    ├── organisation.test.js       Super Admin only; preview, combine, separate; data stays per institute
+    ├── usersAndInvites.test.js    invite link, set password, limits on admins, disable
+    ├── rolesAdmin.test.js         roles CRUD, cannot grant missing permissions, cannot lock yourself out
     ├── modelsRegistry.test.js     every model is listed in src/config/models.js
     └── sharedConstants.test.js    constants match the frontend repo (when cloned next to it)
 ```
@@ -132,7 +141,7 @@ Browser (Edu-Record)
 app.js ─ helmet ─ cors ─ express.json ─ cookieParser ─ morgan
    ▼
 modules/<name>/<name>.routes.js
-   auth → tenantScope → requireRole → validate → controller
+   auth → tenantScope → requirePermission → validate → controller
    ▼
 <name>.service.js  ── scoped(req) / findScopedOr404 ── Mongoose model (+ tenantGuard)
    │                └─ audit()  storage  withTransaction()

@@ -44,16 +44,36 @@ Each module = modules/<name>/<entity>.model.js, .validation.js, .service.js,
 - Every collection except `tenants` and `universities` has `tenantId`.
 - Institute-level collections also have `instituteId`.
 - Both are the first fields of every compound index.
-- Protected routes always run: auth → tenantScope → requireRole(...) → validate(schema) → controller.
+- Protected routes always run: auth → tenantScope → requirePermission(...) → validate(schema) → controller.
 - tenantScope reads the `X-Institute-Id` header, checks the user has access to that institute,
-  sets req.scope = { tenantId, instituteId, role, departmentId }. No access → 403 + audit entry.
+  sets req.scope = { tenantId, instituteId, unitId, ownerType, ownerId, roleId, roleName,
+  permissions, departmentIds }. No access → 403 + audit entry.
 - Services build every query from scoped(req) = { tenantId, instituteId }.
+- `X-Institute-Id: all` is the Super Admin's "All institutes" view: GET only (any other method
+  answers 400 "Choose one institute"); scoped(req) is then { tenantId } plus an optional
+  ?instituteId= filter. Changes are always sent to one institute.
 - A Mongoose plugin `tenantGuard` throws if find/update/delete/count on a tenant collection
   runs without tenantId in the filter.
 
-## Roles (constants/roles.js, same values in both repos)
+## Users, roles and permissions (ADR-016)
 
-PLATFORM_ADMIN, SOCIETY_ADMIN, PRINCIPAL, EXAM_CLERK, TC_CLERK, ACCOUNTS, DEPT_INCHARGE
+- **Super Admin** (`users.isSuperAdmin`): manages everything. It is a flag, not a role, so no
+  admin can grant it. Only the Super Admin can combine/separate institutes and disable accounts.
+- **Permissions** (`constants/permissions.js`, same file in both repos) are what the code checks:
+  routes use `requirePermission(PERMISSIONS.X)`, never role names. A module adds its permissions there.
+- **Roles** are records made by admins: a name plus permissions. Starting set:
+  `constants/roleTemplates.js` (Admin, Principal, Exam Clerk, TC Clerk, Accounts, Department In-charge).
+- **Separate or combined:** a separate institute owns its roles and staff; institutes combined in a
+  **unit** share the unit's roles and staff. Records (students, TCs, numbering) never move.
+  `req.scope.ownerType/ownerId` say which one applies to the selected institute.
+- An admin (role with `users.manage` / `roles.manage`) manages only the roles and staff of the
+  owner of the selected institute, and can only grant permissions they hold.
+- A unit role can be limited to some of the unit's institutes (`role.instituteIds`, empty = all).
+  Check it with `roleUsedIn(role, instituteId)` (utils/access.js); tenantScope already does.
+- Users log in by email + password. New staff are invited with a one-time link (7 days) that the
+  admin copies; the person sets their own password. The same link mechanism resets passwords.
+- Seed: SSISM + SSEC combined in the unit "Sant Singaji Education Society"; users
+  `superadmin@singaji.in` (Super Admin) and `admin@singaji.in` (Admin role).
 
 ## Document statuses (constants/statuses.js)
 
@@ -105,10 +125,16 @@ services, validation, Excel import and screens are NOT built: Module A builds th
 - Register every new model in `src/config/models.js`, or populate() fails at runtime
   (a test checks this).
 - `populate()` on a tenant collection must pass the tenant: `.populate({ path, match: { tenantId } })`.
-- `.setOptions({ skipTenantGuard: true })` is allowed in exactly two places: login
-  (auth.service.js) and findScopedOr404 (utils/findScoped.js). Never add another.
+- `.setOptions({ skipTenantGuard: true })` is allowed in exactly three places: login and
+  invite/password links (auth.service.js), and findScopedOr404 (utils/findScoped.js). Never add another.
+- Roles and users are not institute records: query them with `ownerFilter(req)` (utils/access.js),
+  not `scoped(req)`. In the "All institutes" view ownerFilter covers every owner of the tenant.
+- The Organisation routes use `organisationScope` (not tenantScope): they change the organisation,
+  not one institute's records.
+- Inside a transaction, `Model.create([...several], { session, ordered: true })`: Mongoose 9
+  refuses several documents with a session unless `ordered: true`.
 - Dates of birth and other calendar dates travel as 'YYYY-MM-DD' and are stored as midnight UTC.
 - In services, spread `...scoped(req)` LAST when creating records, so the body cannot pick a tenant.
 - Express is v5: `req.query` is read-only (validate.js handles it).
-- `src/constants/{roles,statuses,categories,coursePatterns,genders}.js` must stay byte-identical
+- `src/constants/{permissions,statuses,categories,coursePatterns,genders,ownerTypes}.js` must stay byte-identical
   to the frontend repo's copies (a test checks this when the frontend is cloned next to this repo).

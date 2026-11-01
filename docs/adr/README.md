@@ -20,6 +20,8 @@ This is the decision log for the **whole EduRecords project** (frontend and back
 | [ADR-013](013-frontend-patterns.md)                      | Frontend patterns: one route list, small hooks, shared components            | Accepted |
 | [ADR-014](014-calendar-dates.md)                         | Calendar dates as YYYY-MM-DD, shown in IST as dd/mm/yyyy                     | Accepted |
 | [ADR-015](015-code-quality-tooling.md)                   | Code quality: ESLint, Prettier, Husky and LF line endings                    | Accepted |
+| [ADR-016](016-units-custom-roles-and-admin-levels.md)    | Separate institutes, optional units, custom roles and three admin levels     | Accepted |
+| [ADR-017](017-email-login.md)                            | Log in with email instead of mobile number                                   | Accepted |
 
 ## Adding a decision
 

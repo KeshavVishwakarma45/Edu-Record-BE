@@ -101,27 +101,34 @@ change the name to yours).
 
 ## Seeded logins
 
-`npm run seed` creates these users and prints this table at the end. The password for all of them
-is `SEED_PASSWORD` from `.env` (default `Edu@12345`). Re-running the seed resets them.
+`npm run seed` creates these two users and prints this table at the end. Login is by **email**.
+The password is `SEED_PASSWORD` from `.env` (default `Edu@12345`). Re-running the seed resets them.
 
-| Mobile     | User                          | Institutes   | Role                                 |
-| ---------- | ----------------------------- | ------------ | ------------------------------------ |
-| 9000000000 | Platform Admin                | SSISM + SSEC | Platform Admin (sees only Dashboard) |
-| 9000000001 | Society Admin                 | SSISM + SSEC | Society Admin                        |
-| 9100000001 | SSISM Principal               | SSISM        | Principal                            |
-| 9100000002 | SSISM Exam Clerk              | SSISM        | Exam Clerk                           |
-| 9100000003 | SSISM TC Clerk                | SSISM        | TC Clerk                             |
-| 9100000004 | SSISM Accounts                | SSISM        | Accounts                             |
-| 9100000005 | SSISM Library In-charge       | SSISM        | Department In-charge (Library)       |
-| 9100000006 | SSISM Sports In-charge        | SSISM        | Department In-charge (Sports)        |
-| 9100000007 | SSISM Computer Dept In-charge | SSISM        | Department In-charge (Computer Dept) |
-| 9200000001 | SSEC Principal                | SSEC         | Principal                            |
-| 9200000002 | SSEC Exam Clerk               | SSEC         | Exam Clerk                           |
-| 9200000003 | SSEC TC Clerk                 | SSEC         | TC Clerk                             |
-| 9200000004 | SSEC Accounts                 | SSEC         | Accounts                             |
-| 9200000005 | SSEC Library In-charge        | SSEC         | Department In-charge (Library)       |
-| 9200000006 | SSEC Sports In-charge         | SSEC         | Department In-charge (Sports)        |
-| 9200000007 | SSEC Computer Dept In-charge  | SSEC         | Department In-charge (Computer Dept) |
+| Email                   | Role        | Institutes   | What they can do                                     |
+| ----------------------- | ----------- | ------------ | ---------------------------------------------------- |
+| `superadmin@singaji.in` | Super Admin | SSISM + SSEC | Everything: institutes, units, roles, users, invites |
+| `admin@singaji.in`      | Admin       | SSISM + SSEC | Runs both institutes; manages their roles and staff  |
+
+The seed puts SSISM and SSEC in one **unit**, "Sant Singaji Education Society": they share one
+set of roles and one staff list, and the institute switcher in the top bar chooses whose data is
+on screen. Records always stay separate per institute.
+
+## Super Admin, admins, roles and invites (ADR-016)
+
+| Who                    | Where in the app              | What they do                                                                                                                 |
+| ---------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Super Admin            | Administration → Organisation | Add and edit institutes; combine them into a unit (with a preview), add or take out one institute, rename or separate a unit |
+| Super Admin and admins | Administration → Roles        | Create roles by ticking permissions; an admin can only give permissions they have                                            |
+| Super Admin and admins | Administration → Users        | Invite by email (copy the link and send it), change a role, remove access, make a password-reset link                        |
+| Super Admin            | Administration → Users        | Disable or enable any account; "Show everyone in the organisation"                                                           |
+
+- An **admin** is anyone whose role has "Manage users" / "Manage roles". They manage only the
+  institute (or unit) selected in the top bar.
+- An **invite link** works once and expires after 7 days. The person sets their own password and
+  is logged in. The admin can make a new link from the user list at any time.
+- The code checks **permissions** (`src/constants/permissions.js`), never role names, so admins can
+  rename roles or make new ones without a code change. The starting roles are in
+  `src/constants/roleTemplates.js`.
 
 The seed also creates both institutes, both universities, the affiliations, the courses
 (SSISM: BBA, BCA, B.Com, B.Sc Bio, B.Sc Micro; SSEC: B.Tech AI & ML), the clearance
@@ -130,15 +137,15 @@ departments (Sports, Library, Computer Dept, Account Dept) and **20 sample stude
 
 ## Scripts
 
-| Command            | What it does                                                       |
-| ------------------ | ------------------------------------------------------------------ |
-| `npm run dev`      | Starts the API on port 5000 and restarts it when a file changes    |
-| `npm start`        | Starts the API without watching (pilot server, PM2)                |
-| `npm run seed`     | Creates or resets the starting data. Safe to run again             |
-| `npm test`         | Runs the Jest tests (security, roles, login, files, students)      |
-| `npm run lint`     | Checks the code with ESLint (`npm run lint:fix` fixes what it can) |
-| `npm run format`   | Formats all files with Prettier                                    |
-| `npm run db:local` | Starts a local MongoDB replica set (only without Atlas)            |
+| Command            | What it does                                                              |
+| ------------------ | ------------------------------------------------------------------------- |
+| `npm run dev`      | Starts the API on port 5000 and restarts it when a file changes           |
+| `npm start`        | Starts the API without watching (pilot server, PM2)                       |
+| `npm run seed`     | Creates or resets the starting data. Safe to run again                    |
+| `npm test`         | Runs the Jest tests (security, permissions, units, invites, login, files) |
+| `npm run lint`     | Checks the code with ESLint (`npm run lint:fix` fixes what it can)        |
+| `npm run format`   | Formats all files with Prettier                                           |
+| `npm run db:local` | Starts a local MongoDB replica set (only without Atlas)                   |
 
 A Git hook (Husky) runs ESLint and Prettier on your staged files at every commit.
 If the commit is refused, run `npm run lint:fix` and `npm run format`, then commit again.
@@ -155,14 +162,17 @@ edu-backend/
 │   ├── app.js            Express app: middleware order and the list of routes
 │   ├── server.js         connects to MongoDB and starts the app
 │   ├── config/           env.js (settings), db.js (connection), models.js (all models)
-│   ├── constants/        roles, statuses, categories, course patterns, genders, audit actions
-│   ├── middleware/       auth, tenantScope, requireRole, validate, error, rateLimit, upload
-│   ├── utils/            ApiError, response helpers, scoped, findScoped, audit, storage, transaction, counter...
+│   ├── constants/        permissions, role templates, statuses, categories, course patterns, genders...
+│   ├── middleware/       auth, tenantScope, requirePermission, validate, error, rateLimit, upload
+│   ├── utils/            ApiError, response helpers, scoped, findScoped, access, audit, storage, setupLink...
 │   ├── modules/
 │   │   ├── courses/      EXAMPLE MODULE: copy this
 │   │   ├── auth/         login, refresh, logout, me
 │   │   ├── institutes/   setup models (Module A builds the screens)
-│   │   ├── users/  audit/  files/
+│   │   ├── organisation/ units: combine / separate institutes (Super Admin)
+│   │   ├── roles/        roles made from permissions
+│   │   ├── users/        users, invites, role assignment
+│   │   ├── audit/  files/
 │   │   ├── students/     Student model only; Module A builds the rest
 │   │   └── results/ inward/ documents/ clearance/ tc/   empty: built by interns
 │   ├── templates/        TC PDF layouts (Module C)
@@ -175,16 +185,16 @@ edu-backend/
 Every protected route runs the same five steps, in this order:
 
 ```
-auth  →  tenantScope  →  requireRole(...)  →  validate(schema)  →  controller  →  service
+auth  →  tenantScope  →  requirePermission(...)  →  validate(schema)  →  controller  →  service
 ```
 
-| Step          | Question it answers                                                  | On failure                    |
-| ------------- | -------------------------------------------------------------------- | ----------------------------- |
-| `auth`        | Who is calling? (checks the access token)                            | 401                           |
-| `tenantScope` | Which institute, and may this user open it? (reads `X-Institute-Id`) | 403, written to the audit log |
-| `requireRole` | Does the user's role in that institute allow this?                   | 403                           |
-| `validate`    | Is the input correct? (Joi)                                          | 400 with one detail per field |
-| `controller`  | Calls the service and sends the answer                               | the service throws `ApiError` |
+| Step                | Question it answers                                                  | On failure                    |
+| ------------------- | -------------------------------------------------------------------- | ----------------------------- |
+| `auth`              | Who is calling? (checks the access token)                            | 401                           |
+| `tenantScope`       | Which institute, and may this user open it? (reads `X-Institute-Id`) | 403, written to the audit log |
+| `requirePermission` | Does the user's role in that institute allow this?                   | 403                           |
+| `validate`          | Is the input correct? (Joi)                                          | 400 with one detail per field |
+| `controller`        | Calls the service and sends the answer                               | the service throws `ApiError` |
 
 Inside the service, every query starts from `scoped(req)` (`{ tenantId, instituteId }`), one record
 by id is loaded with `findScopedOr404`, and every create, update and delete calls `audit(...)`.
@@ -224,15 +234,18 @@ Example: inward batches (`INW-01`). Replace `inward` / `InwardBatch` with your m
    for problems, and call `audit()` after every create, update and delete. Several writes that
    must succeed together go inside `withTransaction()`.
 4. **Controller.** Copy `course.controller.js`. One line per route: call the service, send the answer.
-5. **Routes.** Copy `course.routes.js`. Keep the full chain on every route and pick the roles from
-   the SRS role table. Actions are verbs: `POST /inward-batches/:id/close`.
+5. **Routes.** Copy `course.routes.js`. Keep the full chain on every route, with
+   `requirePermission(PERMISSIONS.X)`. New permissions (e.g. `inward.manage`) go into
+   `src/constants/permissions.js` in **both** repos, with a label in `PERMISSION_GROUPS`, and into the
+   right starting roles in `src/constants/roleTemplates.js`. Actions are verbs:
+   `POST /inward-batches/:id/close`.
 6. **Mount.** Add one line in `src/app.js`: `api.use('/inward-batches', inwardRoutes);`
 7. **Test in Postman.** Test the happy case, one wrong-input case (expect 400) and one wrong-role
    case (expect 403). Add a Jest test in `tests/` if the rule is about security or numbering.
 8. **README.** Update the module README with its endpoints. The frontend pair then adds the screen
    in the Edu-Record repo.
 
-**Shared constants.** `src/constants/{roles,statuses,categories,coursePatterns,genders}.js` must be
+**Shared constants.** `src/constants/{permissions,statuses,categories,coursePatterns,genders}.js` must be
 identical in this repo and the frontend repo. Change both in the same day, in two pull requests.
 With the frontend cloned next to this repo, `npm test` checks that they match.
 
