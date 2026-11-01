@@ -2,6 +2,8 @@
 
 | File                              | What it is                                                            |
 | --------------------------------- | --------------------------------------------------------------------- |
+| `STRUCTURE.md`                    | Every file and folder of this repo, and how a request travels         |
+| `adr/`                            | Architecture Decision Records for the whole project, plus a template  |
 | `postman_collection.json`         | Every auth and courses request, ready to run in Postman               |
 | `postman_environment.json`        | Variables for the collection (API address, a seeded mobile, password) |
 | SRS v1.1, architecture, plan PDFs | Add the project documents here so everyone reads the same version     |
