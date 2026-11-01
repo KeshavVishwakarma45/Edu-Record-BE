@@ -5,6 +5,7 @@ function toPlain(value) {
   if (!value) return null;
   const plain = typeof value.toObject === 'function' ? value.toObject() : { ...value };
   delete plain.passwordHash;
+  delete plain.setupTokenHash;
   return plain;
 }
 
