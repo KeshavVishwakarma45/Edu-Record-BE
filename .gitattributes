@@ -1,0 +1,21 @@
+# Store and check out every text file with LF line endings, on every operating system.
+# Without this, Windows turns LF into CRLF and Prettier/ESLint report every line as changed.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files: never touch line endings
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.xlsx binary

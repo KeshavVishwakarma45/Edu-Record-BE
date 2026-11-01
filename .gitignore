@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Secrets: never commit these. Copy .env.example to .env instead.
+.env
+.env.*
+!.env.example
+
+# Test coverage
+coverage/
+
+# Private uploaded files (photos, signatures, scans) and the local dev database
+uploads/
+.local-db/
+
+# Editor and OS files
+.DS_Store
+.idea/
+*.log
