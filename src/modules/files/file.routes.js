@@ -1,10 +1,9 @@
 import { Router } from 'express';
 import { auth } from '../../middleware/auth.js';
 import { tenantScope } from '../../middleware/tenantScope.js';
-import { requireRole } from '../../middleware/requireRole.js';
+import { requirePermission } from '../../middleware/requirePermission.js';
 import { validate } from '../../middleware/validate.js';
 import { idParams } from '../../utils/validators.js';
-import { STAFF_ROLES } from '../../constants/roles.js';
 import * as controller from './file.controller.js';
 
 // Files are uploaded by each module's own routes (see middleware/upload.js and utils/storage.js).
@@ -15,7 +14,7 @@ router.get(
   '/:id',
   auth,
   tenantScope,
-  requireRole(...STAFF_ROLES),
+  requirePermission() /* any member of the institute */,
   validate({ params: idParams }),
   controller.download,
 );

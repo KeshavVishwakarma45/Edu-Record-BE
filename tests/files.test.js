@@ -16,7 +16,7 @@ beforeAll(async () => {
   // Pretend an SSEC user uploaded a photo
   const fakeReq = {
     scope: { tenantId: world.tenantId, instituteId: world.institutes.ssec._id },
-    user: { id: world.users.societyAdmin._id },
+    user: { id: world.users.admin._id },
   };
   ssecFile = await save(fakeReq, {
     buffer: PNG,
@@ -28,7 +28,7 @@ beforeAll(async () => {
 afterAll(stopDb);
 
 test('the owning institute can download the file', async () => {
-  const token = await loginAs(app, world.users.societyAdmin);
+  const token = await loginAs(app, world.users.admin);
   const res = await request(app)
     .get(`/api/v1/files/${ssecFile._id}`)
     .set({ Authorization: `Bearer ${token}`, 'X-Institute-Id': String(world.institutes.ssec._id) });

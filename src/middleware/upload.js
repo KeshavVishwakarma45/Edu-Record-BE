@@ -6,7 +6,7 @@ import { ERROR_CODES } from '../utils/errorCodes.js';
 // Files stay in memory (req.file.buffer) until the service saves them with utils/storage.js.
 //
 // Use in a route, before validate:
-//   router.post('/:id/photo', auth, tenantScope, requireRole(...), uploadImage('photo'),
+//   router.post('/:id/photo', auth, tenantScope, requirePermission(...), uploadImage('photo'),
 //               validate({ params: idParams }), controller.uploadPhoto);
 
 const MB = 1024 * 1024;

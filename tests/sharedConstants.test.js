@@ -10,7 +10,14 @@ const frontendRoot = process.env.FRONTEND_DIR
   ? path.resolve(process.env.FRONTEND_DIR)
   : path.resolve(backendRoot, '../edu-frontend');
 const frontendFound = fs.existsSync(path.join(frontendRoot, 'src/constants'));
-const SHARED = ['roles.js', 'statuses.js', 'categories.js', 'coursePatterns.js', 'genders.js'];
+const SHARED = [
+  'permissions.js',
+  'statuses.js',
+  'categories.js',
+  'coursePatterns.js',
+  'genders.js',
+  'ownerTypes.js',
+];
 
 if (!frontendFound) {
   console.warn(`Skipping shared-constants check: no frontend repo at ${frontendRoot}`);

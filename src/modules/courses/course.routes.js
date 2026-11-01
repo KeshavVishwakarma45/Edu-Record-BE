@@ -1,22 +1,22 @@
 import { Router } from 'express';
 import { auth } from '../../middleware/auth.js';
 import { tenantScope } from '../../middleware/tenantScope.js';
-import { requireRole } from '../../middleware/requireRole.js';
+import { requirePermission } from '../../middleware/requirePermission.js';
 import { validate } from '../../middleware/validate.js';
 import { idParams } from '../../utils/validators.js';
-import { STAFF_ROLES, COURSE_WRITE_ROLES } from '../../constants/roles.js';
+import { PERMISSIONS } from '../../constants/permissions.js';
 import { createCourseSchema, updateCourseSchema, listCoursesQuery } from './course.validation.js';
 import * as controller from './course.controller.js';
 
 // Every route runs the same chain, in the same order:
-//   auth -> tenantScope -> requireRole(...) -> validate(...) -> controller
+//   auth -> tenantScope -> requirePermission(...) -> validate(...) -> controller
 const router = Router();
 
 router.get(
   '/',
   auth,
   tenantScope,
-  requireRole(...STAFF_ROLES),
+  requirePermission(PERMISSIONS.COURSE_READ),
   validate({ query: listCoursesQuery }),
   controller.list,
 );
@@ -27,7 +27,7 @@ router.get(
   '/options',
   auth,
   tenantScope,
-  requireRole(...COURSE_WRITE_ROLES),
+  requirePermission(PERMISSIONS.COURSE_WRITE),
   validate({}),
   controller.options,
 );
@@ -36,7 +36,7 @@ router.get(
   '/:id',
   auth,
   tenantScope,
-  requireRole(...STAFF_ROLES),
+  requirePermission(PERMISSIONS.COURSE_READ),
   validate({ params: idParams }),
   controller.getById,
 );
@@ -45,7 +45,7 @@ router.post(
   '/',
   auth,
   tenantScope,
-  requireRole(...COURSE_WRITE_ROLES),
+  requirePermission(PERMISSIONS.COURSE_WRITE),
   validate({ body: createCourseSchema }),
   controller.create,
 );
@@ -54,7 +54,7 @@ router.patch(
   '/:id',
   auth,
   tenantScope,
-  requireRole(...COURSE_WRITE_ROLES),
+  requirePermission(PERMISSIONS.COURSE_WRITE),
   validate({ params: idParams, body: updateCourseSchema }),
   controller.update,
 );
@@ -63,7 +63,7 @@ router.delete(
   '/:id',
   auth,
   tenantScope,
-  requireRole(...COURSE_WRITE_ROLES),
+  requirePermission(PERMISSIONS.COURSE_WRITE),
   validate({ params: idParams }),
   controller.remove,
 );
