@@ -9,6 +9,11 @@ import mongoose from 'mongoose';
 //     await audit(req, AUDIT_ACTIONS.CREATE, 'handover', id, null, data, session);
 //   });
 //
+// Run the queries inside fn one after another (await each): MongoDB refuses parallel queries
+// (Promise.all) on one transaction session.
+// Creating several documents at once inside fn needs ordered: true (a Mongoose 9 rule):
+//   await Role.create([a, b], { session, ordered: true });
+//
 // MongoDB retries fn automatically on temporary conflicts, so fn must not have side effects
 // outside the database (no file writes, no emails) unless they are safe to repeat.
 export async function withTransaction(fn) {

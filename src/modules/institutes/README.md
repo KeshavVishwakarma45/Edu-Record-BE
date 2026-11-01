@@ -17,5 +17,5 @@ Add validation, service, controller and routes for each, copying `modules/course
 
 Notes:
 
-- `universities` and `tenants` have no `tenantId` (shared master / the tenant itself). Only PLATFORM_ADMIN may change universities.
+- `universities` and `tenants` have no `tenantId` (shared master / the tenant itself). Only SUPER_ADMIN may change universities.
 - Images (logo, seal, signature) are uploaded with `middleware/upload.js` and saved with `utils/storage.js`; store the returned File id.

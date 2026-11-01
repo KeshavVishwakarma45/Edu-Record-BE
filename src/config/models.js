@@ -6,6 +6,8 @@ import '../modules/institutes/institute.model.js';
 import '../modules/institutes/university.model.js';
 import '../modules/institutes/affiliation.model.js';
 import '../modules/institutes/department.model.js';
+import '../modules/organisation/unit.model.js';
+import '../modules/roles/role.model.js';
 import '../modules/users/user.model.js';
 import '../modules/audit/auditLog.model.js';
 import '../modules/files/file.model.js';

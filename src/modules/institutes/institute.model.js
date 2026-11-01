@@ -18,6 +18,8 @@ const instituteSchema = new mongoose.Schema(
     sealImage: { type: ObjectId, ref: 'File', default: null },
     principalName: { type: String, trim: true, default: '' },
     principalSignature: { type: ObjectId, ref: 'File', default: null },
+    // The unit this institute is combined into (shares roles and staff), or null when separate
+    unitId: { type: ObjectId, ref: 'Unit', default: null },
     // Free-form per-institute settings (e.g. TC layout) until each gets a proper field
     settings: { type: mongoose.Schema.Types.Mixed, default: {} },
   },
@@ -25,6 +27,7 @@ const instituteSchema = new mongoose.Schema(
 );
 
 instituteSchema.index({ tenantId: 1, shortCode: 1 }, { unique: true });
+instituteSchema.index({ tenantId: 1, unitId: 1 });
 instituteSchema.plugin(tenantGuard);
 instituteSchema.plugin(actorFields);
 
