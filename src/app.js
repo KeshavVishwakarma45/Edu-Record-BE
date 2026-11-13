@@ -39,11 +39,12 @@ export function createApp() {
   api.get('/health', (_req, res) => sendSuccess(res, { status: 'ok' }));
   api.use('/auth', authRoutes);
   api.use('/courses', courseRoutes);
+  api.use('/students', studentRoutes);
   api.use('/files', fileRoutes);
   api.use('/organisation', organisationRoutes);
   api.use('/roles', roleRoutes);
   api.use('/users', userRoutes);
-  api.use('/students', studentRoutes);
+
   app.use('/api/v1', api);
 
   // Nothing matched: 404. Then the one error middleware formats every error.
