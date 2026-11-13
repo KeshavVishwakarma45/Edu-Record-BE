@@ -2,6 +2,10 @@ import { Student } from './student.model.js';
 import { scoped } from '../../utils/scoped.js';
 import { findScopedOr404 } from '../../utils/findScoped.js';
 import { searchFilter, sortOption, pageOptions } from '../../utils/listQuery.js';
+import { AUDIT_ACTIONS } from '../../constants/auditActions.js';
+import { audit } from '../../utils/audit.js';
+import { ApiError } from '../../utils/ApiError.js';
+import { STUDENT_STATUS_LIST } from '../../constants/statuses.js';
 const ENTITY = 'student';
 
 export async function list(req) {
@@ -36,4 +40,26 @@ export async function list(req) {
 
 export function getById(req, id) {
   return findScopedOr404(req, Student, id, ENTITY);
+}
+
+export async function update(req, id, changes) {
+  const student = await findScopedOr404(req, Student, id, ENTITY);
+  if (changes.status && !STUDENT_STATUS_LIST.includes(changes.status)) {
+    throw new ApiError(400, 'Invalid student status');
+  }
+  const before = student.toObject();
+  student.set(changes);
+  student.updatedBy = req.user.id;
+  await student.save();
+
+  await audit(req, AUDIT_ACTIONS.UPDATE, ENTITY, student._id, before, student);
+  return student;
+}
+
+export async function remove(req, id) {
+  const student = await findScopedOr404(req, Student, id, ENTITY);
+
+  await Student.deleteOne({ _id: student._id });
+
+  await audit(req, AUDIT_ACTIONS.DELETE, ENTITY, student._id, student, null);
 }
