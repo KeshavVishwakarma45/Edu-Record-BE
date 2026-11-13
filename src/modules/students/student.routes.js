@@ -9,6 +9,7 @@ import { PERMISSIONS } from '../../constants/permissions.js';
 
 import { createStudentSchema } from './student.validation.js';
 import * as controller from './student.controller.js';
+import { updateStudentStatusSchema } from './student.validation.js';
 
 const router = Router();
 
@@ -21,5 +22,16 @@ router.post(
   validate({ body: createStudentSchema }),
   controller.create,
 );
-
 export default router;
+
+// Update student status
+router.patch(
+  '/:studentId/status',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.STUDENT_WRITE),
+  validate({
+    body: updateStudentStatusSchema,
+  }),
+  controller.updateStatus,
+);

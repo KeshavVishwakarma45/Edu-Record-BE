@@ -10,3 +10,10 @@ export const create = asyncHandler(async (req, res) => {
 
   sendSuccess(res, student, 201);
 });
+
+// Update student status
+export const updateStatus = asyncHandler(async (req, res) => {
+  const student = await studentService.updateStatus(req, req.params.studentId, req.body.status);
+
+  sendSuccess(res, student, 200);
+});

@@ -99,3 +99,32 @@ export async function create(req, data) {
 
   return student;
 }
+
+// Update existing student's status
+export async function updateStatus(req, studentId, status) {
+  // Find student within selected institute
+  const student = await Student.findOne({
+    ...scoped(req),
+    _id: studentId,
+  });
+
+  // Check student exists
+  if (!student) {
+    throw ApiError.notFound('Student not found');
+  }
+
+  // Store old data for audit history
+  const oldStudent = student.toObject();
+
+  // Update status
+  student.status = status;
+  student.updatedBy = req.user.id;
+
+  // Save changes
+  await student.save();
+
+  // Maintain audit history
+  await audit(req, AUDIT_ACTIONS.UPDATE, ENTITY, student._id, oldStudent, student.toObject());
+
+  return student;
+}

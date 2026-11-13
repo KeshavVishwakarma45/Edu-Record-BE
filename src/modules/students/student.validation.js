@@ -2,6 +2,7 @@ import Joi from 'joi';
 import { objectId, mobile } from '../../utils/validators.js';
 import { CATEGORY_LIST } from '../../constants/categories.js';
 import { GENDER_LIST } from '../../constants/genders.js';
+import { STUDENT_STATUS_LIST } from '../../constants/statuses.js';
 
 // Fields required when adding a new student
 export const createStudentSchema = Joi.object({
@@ -46,4 +47,11 @@ export const createStudentSchema = Joi.object({
   previousSchool: Joi.string().trim().max(150).allow('').default(''),
 
   photo: objectId().allow(null).default(null),
+});
+
+// Validation for updating student status
+export const updateStudentStatusSchema = Joi.object({
+  status: Joi.string()
+    .valid(...STUDENT_STATUS_LIST)
+    .required(),
 });
