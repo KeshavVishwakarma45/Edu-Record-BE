@@ -14,6 +14,8 @@ export const PERMISSIONS = Object.freeze({
   STUDENT_READ: 'student.read',
   STUDENT_WRITE: 'student.write',
   STUDENT_IMPORT: 'student.import',
+  STUDENT_UPDATE: 'student:update',
+  STUDENT_DELETE: 'student:delete',
   INWARD_READ: 'inward.read',
   INWARD_MANAGE: 'inward.manage',
   HANDOVER_ISSUE: 'handover.issue',
