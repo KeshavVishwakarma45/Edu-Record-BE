@@ -10,6 +10,8 @@ import { PERMISSIONS } from '../../constants/permissions.js';
 import { createStudentSchema } from './student.validation.js';
 import * as controller from './student.controller.js';
 import { updateStudentStatusSchema } from './student.validation.js';
+import { uploadImage } from '../../middleware/upload.js';
+import { idParams } from '../../utils/validators.js';
 
 const router = Router();
 
@@ -22,7 +24,6 @@ router.post(
   validate({ body: createStudentSchema }),
   controller.create,
 );
-export default router;
 
 // Update student status
 router.patch(
@@ -35,3 +36,16 @@ router.patch(
   }),
   controller.updateStatus,
 );
+
+// Upload or update student photo
+router.patch(
+  '/:id/photo',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.STUDENT_WRITE),
+  validate({ params: idParams }),
+  uploadImage('photo'),
+  controller.uploadPhoto,
+);
+
+export default router;

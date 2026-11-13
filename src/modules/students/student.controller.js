@@ -17,3 +17,10 @@ export const updateStatus = asyncHandler(async (req, res) => {
 
   sendSuccess(res, student, 200);
 });
+
+// Upload or update student photo
+export const uploadPhoto = asyncHandler(async (req, res) => {
+  const student = await studentService.uploadPhoto(req, req.params.id, req.file);
+
+  sendSuccess(res, student, 200);
+});

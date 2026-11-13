@@ -7,6 +7,8 @@ import { ApiError } from '../../utils/ApiError.js';
 import { scoped } from '../../utils/scoped.js';
 import { audit } from '../../utils/audit.js';
 import { AUDIT_ACTIONS } from '../../constants/auditActions.js';
+import { File } from '../files/file.model.js';
+import * as storage from '../../utils/storage.js';
 
 const ENTITY = 'student';
 
@@ -125,6 +127,59 @@ export async function updateStatus(req, studentId, status) {
 
   // Maintain audit history
   await audit(req, AUDIT_ACTIONS.UPDATE, ENTITY, student._id, oldStudent, student.toObject());
+
+  return student;
+}
+
+// Upload or update student's photo
+export async function uploadPhoto(req, studentId, uploaded) {
+  // 1. Find student within selected institute
+  const student = await Student.findOne({
+    ...scoped(req),
+    _id: studentId,
+  });
+
+  if (!student) {
+    throw ApiError.notFound('Student not found');
+  }
+
+  if (!uploaded) {
+    throw ApiError.badRequest('Please upload a student photo');
+  }
+
+  // 2. Keep old student data for audit
+  const oldStudent = student.toObject();
+
+  // 3. Find existing photo, if available
+  const oldPhoto = student.photo
+    ? await File.findOne({
+        ...scoped(req),
+        _id: student.photo,
+      })
+    : null;
+
+  // 4. Save new photo using existing storage utility
+  const newFile = await storage.save(req, uploaded);
+
+  // 5. Update student photo reference
+  student.photo = newFile._id;
+  student.updatedBy = req.user.id;
+
+  try {
+    await student.save();
+  } catch (error) {
+    // Remove newly uploaded file if student update fails
+    await storage.remove(newFile);
+    throw error;
+  }
+
+  // 6. Maintain audit history
+  await audit(req, AUDIT_ACTIONS.UPDATE, ENTITY, student._id, oldStudent, student.toObject());
+
+  // 7. Remove old photo only after successful update
+  if (oldPhoto) {
+    await storage.remove(oldPhoto);
+  }
 
   return student;
 }
