@@ -55,7 +55,7 @@ export const studentImportRowSchema = Joi.object({
 export const createStudentSchema = Joi.object({
   scholarNo: Joi.string().trim().min(1).max(30).required(),
   enrollmentNo: Joi.string().trim().max(50).empty('').default(null),
-  universityId: objectId().required(),
+
   rollNo: Joi.string().trim().max(30).allow('').default(''),
   name: Joi.string().trim().min(2).max(100).required(),
   fatherName: Joi.string().trim().min(2).max(100).required(),

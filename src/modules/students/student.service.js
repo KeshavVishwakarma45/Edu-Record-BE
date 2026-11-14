@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs';
-import { Affiliation } from '../institutes/affiliation.model.js';
+
 import { University } from '../institutes/university.model.js';
 
 import { ApiError } from '../../utils/ApiError.js';
@@ -339,11 +339,21 @@ export async function importStudents(req) {
 /**
  * Verify that the selected course belongs to the selected university.
  */
-async function checkCourse(req, courseId, universityId) {
+
+async function checkCourse(req, courseId) {
   const course = await Course.findOne({
     ...scoped(req),
     _id: courseId,
-  });
+  })
+    .populate({
+      path: 'affiliationId',
+      match: {
+        tenantId: req.scope.tenantId,
+        instituteId: req.scope.instituteId,
+      },
+      select: 'universityId',
+    })
+    .lean();
 
   if (!course) {
     throw ApiError.badRequest('Please correct the highlighted fields', [
@@ -351,35 +361,30 @@ async function checkCourse(req, courseId, universityId) {
     ]);
   }
 
+  if (!course.affiliationId?.universityId) {
+    throw ApiError.badRequest('Please correct the highlighted fields', [
+      { field: 'courseId', message: 'Course has no valid university affiliation' },
+    ]);
+  }
+
+  const universityId = course.affiliationId.universityId;
+
   const universityExists = await University.exists({
     _id: universityId,
   });
 
   if (!universityExists) {
     throw ApiError.badRequest('Please correct the highlighted fields', [
-      { field: 'universityId', message: 'Choose a valid university' },
+      { field: 'courseId', message: 'Course university does not exist' },
     ]);
   }
 
-  const affiliationExists = await Affiliation.exists({
-    ...scoped(req),
-    _id: course.affiliationId,
-    universityId,
-  });
-
-  if (!affiliationExists) {
-    throw ApiError.badRequest('Please correct the highlighted fields', [
-      {
-        field: 'universityId',
-        message: 'This university is not affiliated with the selected course',
-      },
-    ]);
-  }
+  return universityId;
 }
 
 // Create a new student
 export async function create(req, data) {
-  await checkCourse(req, data.courseId, data.universityId);
+  const universityId = await checkCourse(req, data.courseId);
 
   const existingScholar = await Student.exists({
     ...scoped(req),
@@ -395,7 +400,7 @@ export async function create(req, data) {
   if (data.enrollmentNo) {
     const existingEnrollment = await Student.exists({
       tenantId: req.scope.tenantId,
-      universityId: data.universityId,
+      universityId,
       enrollmentNo: data.enrollmentNo,
     });
 
@@ -408,6 +413,7 @@ export async function create(req, data) {
 
   const student = await Student.create({
     ...data,
+    universityId,
     ...scoped(req),
     createdBy: req.user.id,
     updatedBy: req.user.id,

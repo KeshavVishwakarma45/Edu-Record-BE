@@ -38,6 +38,16 @@ router.get(
   controller.downloadImportTemplate,
 );
 
+// Get Student by ID
+router.get(
+  '/:id',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.STUDENT_READ),
+  validate({ params: idParams }),
+  controller.getById,
+);
+
 // Upload and Import Students from Excel
 router.post(
   '/import',
