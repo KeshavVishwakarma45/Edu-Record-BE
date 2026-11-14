@@ -1,19 +1,62 @@
 import { Router } from 'express';
 
 import { auth } from '../../middleware/auth.js';
-import { tenantScope } from '../../middleware/tenantScope.js';
 import { requirePermission } from '../../middleware/requirePermission.js';
 import { validate } from '../../middleware/validate.js';
-
+import { tenantScope } from '../../middleware/tenantScope.js';
 import { PERMISSIONS } from '../../constants/permissions.js';
 
-import { createStudentSchema } from './student.validation.js';
-import * as controller from './student.controller.js';
-import { updateStudentStatusSchema } from './student.validation.js';
+import { uploadExcel } from '../../middleware/uploadExcel.js';
 import { uploadImage } from '../../middleware/upload.js';
+
+import {
+  listStudentsQuery,
+  createStudentSchema,
+  updateStudentStatusSchema,
+} from './student.validation.js';
 import { idParams } from '../../utils/validators.js';
+import * as controller from './student.controller.js';
 
 const router = Router();
+
+// Student Listing
+router.get(
+  '/',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.STUDENT_READ),
+  validate({ query: listStudentsQuery }),
+  controller.list,
+);
+
+// Download Excel Import Template
+router.get(
+  '/import-template',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.STUDENT_IMPORT),
+  controller.downloadImportTemplate,
+);
+
+// Get Student by ID
+router.get(
+  '/:id',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.STUDENT_READ),
+  validate({ params: idParams }),
+  controller.getById,
+);
+
+// Upload and Import Students from Excel
+router.post(
+  '/import',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.STUDENT_IMPORT),
+  uploadExcel('file'),
+  controller.importStudents,
+);
 
 // Add a new student
 router.post(
@@ -31,9 +74,7 @@ router.patch(
   auth,
   tenantScope,
   requirePermission(PERMISSIONS.STUDENT_WRITE),
-  validate({
-    body: updateStudentStatusSchema,
-  }),
+  validate({ body: updateStudentStatusSchema }),
   controller.updateStatus,
 );
 

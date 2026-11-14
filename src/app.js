@@ -9,11 +9,11 @@ import { notFound, errorHandler } from './middleware/error.js';
 import { sendSuccess } from './utils/response.js';
 import authRoutes from './modules/auth/auth.routes.js';
 import courseRoutes from './modules/courses/course.routes.js';
+import studentRoutes from './modules/students/student.routes.js';
 import fileRoutes from './modules/files/file.routes.js';
 import organisationRoutes from './modules/organisation/organisation.routes.js';
 import roleRoutes from './modules/roles/role.routes.js';
 import userRoutes from './modules/users/user.routes.js';
-import studentRoutes from './modules/students/student.routes.js';
 
 // Builds the Express app. server.js starts it; tests use it directly with Supertest.
 export function createApp() {
@@ -39,16 +39,16 @@ export function createApp() {
   api.get('/health', (_req, res) => sendSuccess(res, { status: 'ok' }));
   api.use('/auth', authRoutes);
   api.use('/courses', courseRoutes);
+  api.use('/students', studentRoutes);
   api.use('/files', fileRoutes);
   api.use('/organisation', organisationRoutes);
   api.use('/roles', roleRoutes);
   api.use('/users', userRoutes);
+
   app.use('/api/v1', api);
-  api.use('/students', studentRoutes);
 
   // Nothing matched: 404. Then the one error middleware formats every error.
   app.use(notFound);
   app.use(errorHandler);
-
   return app;
 }

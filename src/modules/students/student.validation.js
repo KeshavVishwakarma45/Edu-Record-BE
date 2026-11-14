@@ -1,55 +1,84 @@
 import Joi from 'joi';
-import { objectId, mobile } from '../../utils/validators.js';
-import { CATEGORY_LIST } from '../../constants/categories.js';
-import { GENDER_LIST } from '../../constants/genders.js';
+
+import { objectId, listQuery, mobile } from '../../utils/validators.js';
 import { STUDENT_STATUS_LIST } from '../../constants/statuses.js';
+import { GENDER_LIST } from '../../constants/genders.js';
+import { CATEGORY_LIST } from '../../constants/categories.js';
 
-// Fields required when adding a new student
-export const createStudentSchema = Joi.object({
-  scholarNo: Joi.string().trim().min(1).max(30).required(),
+// Student Listing: search, sorting and filters
+export const listStudentsQuery = listQuery(
+  ['name', 'scholarNo', 'rollNo', 'admissionDate', 'createdAt'],
+  {
+    courseId: objectId().allow(''),
+    status: Joi.string()
+      .valid(...STUDENT_STATUS_LIST)
+      .allow(''),
+    gender: Joi.string()
+      .valid(...GENDER_LIST)
+      .allow(''),
+    category: Joi.string()
+      .valid(...CATEGORY_LIST)
+      .allow(''),
+    batch: Joi.string().trim().max(20).allow(''),
+  },
+);
 
-  enrollmentNo: Joi.string().trim().max(50).empty('').default(null),
-
-  universityId: objectId().required(),
-
-  rollNo: Joi.string().trim().max(30).allow('').default(''),
-
+// Bulk Excel Import: validation for each student row
+export const studentImportRowSchema = Joi.object({
+  scholarNo: Joi.string().trim().min(1).max(50).required(),
+  enrollmentNo: Joi.string().trim().max(50).allow('', null),
+  rollNo: Joi.string().trim().max(50).allow('', null),
   name: Joi.string().trim().min(2).max(100).required(),
-
   fatherName: Joi.string().trim().min(2).max(100).required(),
-
-  motherName: Joi.string().trim().max(100).allow('').default(''),
-
+  motherName: Joi.string().trim().max(100).allow(''),
   dob: Joi.date().iso().required(),
-
   gender: Joi.string()
     .valid(...GENDER_LIST)
     .required(),
-
   category: Joi.string()
     .valid(...CATEGORY_LIST)
     .required(),
-
-  religion: Joi.string().trim().max(50).allow('').default(''),
-
-  address: Joi.string().trim().max(500).allow('').default(''),
-
-  mobile: mobile().allow('').default(''),
-
+  religion: Joi.string().trim().max(50).allow(''),
+  address: Joi.string().trim().max(500).allow(''),
+  mobile: mobile().allow(''),
   admissionDate: Joi.date().iso().required(),
-
   courseId: objectId().required(),
+  branch: Joi.string().trim().max(100).allow(''),
+  batch: Joi.string().trim().max(30).allow(''),
+  previousSchool: Joi.string().trim().max(150).allow(''),
+  status: Joi.string()
+    .valid(...STUDENT_STATUS_LIST)
+    .optional(),
+}).unknown(false);
 
+// Student Creation: validation for adding a new student
+export const createStudentSchema = Joi.object({
+  scholarNo: Joi.string().trim().min(1).max(30).required(),
+  enrollmentNo: Joi.string().trim().max(50).empty('').default(null),
+
+  rollNo: Joi.string().trim().max(30).allow('').default(''),
+  name: Joi.string().trim().min(2).max(100).required(),
+  fatherName: Joi.string().trim().min(2).max(100).required(),
+  motherName: Joi.string().trim().max(100).allow('').default(''),
+  dob: Joi.date().iso().required(),
+  gender: Joi.string()
+    .valid(...GENDER_LIST)
+    .required(),
+  category: Joi.string()
+    .valid(...CATEGORY_LIST)
+    .required(),
+  religion: Joi.string().trim().max(50).allow('').default(''),
+  address: Joi.string().trim().max(500).allow('').default(''),
+  mobile: mobile().allow('').default(''),
+  admissionDate: Joi.date().iso().required(),
+  courseId: objectId().required(),
   branch: Joi.string().trim().max(100).allow('').default(''),
-
   batch: Joi.string().trim().max(30).allow('').default(''),
-
   previousSchool: Joi.string().trim().max(150).allow('').default(''),
-
   photo: objectId().allow(null).default(null),
 });
 
-// Validation for updating student status
+// Student Status Update
 export const updateStudentStatusSchema = Joi.object({
   status: Joi.string()
     .valid(...STUDENT_STATUS_LIST)
