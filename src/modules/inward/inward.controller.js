@@ -1,5 +1,5 @@
 import { asyncHandler } from '../../utils/asyncHandler.js';
-import { sendSuccess } from '../../utils/response.js';
+import { sendSuccess, sendList } from '../../utils/response.js';
 import * as inwardService from './inward.service.js';
 
 export const getStudents = asyncHandler(async (req, res) => {
@@ -30,4 +30,22 @@ export const receiveMissing = asyncHandler(async (req, res) => {
     req.body,
   );
   sendSuccess(res, receipt);
+});
+
+// API 11: Update missing document
+export const updateMissing = asyncHandler(async (req, res) => {
+  const document = await inwardService.updateMissing(
+    req,
+    req.params.id,
+    req.params.missingId,
+    req.body,
+  );
+
+  sendSuccess(res, document);
+});
+
+// API 12: Get pending documents
+export const getPending = asyncHandler(async (req, res) => {
+  const { rows, meta } = await inwardService.getPending(req);
+  sendList(res, rows, meta);
 });

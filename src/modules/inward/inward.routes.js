@@ -9,15 +9,20 @@ import {
   inwardBatchIdParams,
   receiptParams,
   missingReceiveParams,
+  missingUpdateParams,
   createReceiptSchema,
   updateReceiptSchema,
   receiveMissingSchema,
+  updateMissingSchema,
+  inwardPendingQuery,
 } from './inward.validation.js';
 
 import * as controller from './inward.controller.js';
 
 const router = Router();
+export const pendingRouter = Router();
 
+// API 5: Get expected students
 router.get(
   '/:id/students',
   auth,
@@ -27,6 +32,7 @@ router.get(
   controller.getStudents,
 );
 
+// API 6: Create receipt
 router.post(
   '/:id/receipts',
   auth,
@@ -36,6 +42,7 @@ router.post(
   controller.createReceipt,
 );
 
+// API 7: Update receipt
 router.patch(
   '/:id/receipts/:receiptId',
   auth,
@@ -45,6 +52,7 @@ router.patch(
   controller.updateReceipt,
 );
 
+// API 8: Receive missing document
 router.post(
   '/:newBatchId/missing/:missingId/receive',
   auth,
@@ -55,6 +63,29 @@ router.post(
     body: receiveMissingSchema,
   }),
   controller.receiveMissing,
+);
+
+// API 11: Update missing document details
+router.patch(
+  '/:id/missing/:missingId',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.INWARD_MANAGE),
+  validate({
+    params: missingUpdateParams,
+    body: updateMissingSchema,
+  }),
+  controller.updateMissing,
+);
+
+// API 12: Get pending documents
+pendingRouter.get(
+  '/',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.INWARD_READ),
+  validate({ query: inwardPendingQuery }),
+  controller.getPending,
 );
 
 export default router;

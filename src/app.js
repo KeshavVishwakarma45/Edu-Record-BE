@@ -13,10 +13,9 @@ import fileRoutes from './modules/files/file.routes.js';
 import organisationRoutes from './modules/organisation/organisation.routes.js';
 import roleRoutes from './modules/roles/role.routes.js';
 import userRoutes from './modules/users/user.routes.js';
-
+import inwardRoutes, { pendingRouter } from './modules/inward/inward.routes.js';
 
 import studentRoutes from './modules/students/student.routes.js';
-import inwardRoutes from './modules/inward/inward.routes.js';
 
 // Builds the Express app. server.js starts it; tests use it directly with Supertest.
 export function createApp() {
@@ -51,9 +50,12 @@ export function createApp() {
   app.use('/api/v1', api);
 
   api.use('/students', studentRoutes);
+
   api.use('/inward-batches', inwardRoutes);
+  api.use('/inward-pending', pendingRouter);
 
   app.use('/api/v1', api);
+
   // Nothing matched: 404. Then the one error middleware formats every error.
   app.use(notFound);
   app.use(errorHandler);

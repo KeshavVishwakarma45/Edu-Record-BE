@@ -5,6 +5,7 @@ import { ApiError } from '../../utils/ApiError.js';
 import { audit } from '../../utils/audit.js';
 import { AUDIT_ACTIONS } from '../../constants/auditActions.js';
 import { DOCUMENT_STATUSES } from '../../constants/statuses.js';
+import { searchFilter, sortOption, pageOptions } from '../../utils/listQuery.js';
 
 const ENTITY = 'inward document';
 
@@ -128,6 +129,10 @@ export async function receiveMissing(req, newBatchId, missingId, data) {
   document.receivedBy = req.user.id;
   document.custodyDate = new Date();
 
+  if (!document.missingDetails) {
+    document.missingDetails = {};
+  }
+
   if (data.documentSerialNo !== undefined) {
     document.documentSerialNo = data.documentSerialNo;
   }
@@ -144,4 +149,94 @@ export async function receiveMissing(req, newBatchId, missingId, data) {
   await audit(req, AUDIT_ACTIONS.UPDATE, ENTITY, document._id, before, document);
 
   return document;
+}
+
+// API 11: Update missing document details
+
+export async function updateMissing(req, batchId, missingId, changes) {
+  const batch = await findScopedOr404(req, InwardBatch, batchId, 'inward batch');
+
+  const document = await InwardDocument.findOne({
+    ...scoped(req),
+    _id: missingId,
+    batchId: batch._id,
+  });
+
+  if (!document) {
+    throw ApiError.notFound('Document not found in this batch');
+  }
+
+  if (
+    document.status !== DOCUMENT_STATUSES.EXPECTED &&
+    document.status !== DOCUMENT_STATUSES.NOT_RECEIVED
+  ) {
+    throw ApiError.conflict('Only Expected or already missing documents can be updated');
+  }
+
+  const before = document.toObject();
+
+  const reason = changes.reason ?? document.missingDetails?.reason;
+  const followUpDate = changes.followUpDate ?? document.missingDetails?.followUpDate;
+  const otherReason = changes.otherReason ?? document.missingDetails?.otherReason ?? '';
+
+  if (!reason || !followUpDate) {
+    throw ApiError.badRequest('Reason and follow-up date are required');
+  }
+
+  if (reason === 'OTHER' && !otherReason.trim()) {
+    throw ApiError.badRequest('Please provide otherReason when reason is OTHER');
+  }
+
+  document.missingDetails = {
+    reason,
+    otherReason: reason === 'OTHER' ? otherReason : '',
+    followUpDate,
+  };
+
+  document.status = DOCUMENT_STATUSES.NOT_RECEIVED;
+  document.updatedBy = req.user.id;
+
+  await document.save();
+
+  await audit(req, AUDIT_ACTIONS.UPDATE, ENTITY, document._id, before, document);
+
+  return document;
+}
+
+// API 12: Get all pending/missing documents
+export async function getPending(req) {
+  const { search, sort, page, limit } = req.query;
+
+  const filter = {
+    ...scoped(req),
+    status: DOCUMENT_STATUSES.NOT_RECEIVED,
+    ...searchFilter(search, ['documentType', 'documentSerialNo', 'missingDetails.reason']),
+  };
+
+  const { skip } = pageOptions(req.query);
+
+  const [rows, total] = await Promise.all([
+    InwardDocument.find(filter)
+      .populate({
+        path: 'studentId',
+        select: 'scholarNo enrollmentNo rollNo name fatherName courseId branch batch',
+        match: { tenantId: req.scope.tenantId },
+      })
+      .populate({
+        path: 'batchId',
+        select: 'examTerm examSession documentType receivedDate referenceNumber',
+        match: { tenantId: req.scope.tenantId },
+      })
+      .sort(sortOption(sort))
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+
+    InwardDocument.countDocuments(filter),
+  ]);
+
+  return {
+    rows,
+    meta: { page, limit, total },
+  };
 }
