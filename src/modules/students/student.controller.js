@@ -32,3 +32,23 @@ export const importStudents = asyncHandler(async (req, res) => {
   const result = await studentService.importStudents(req);
   sendSuccess(res, result);
 });
+
+// POST /api/v1/students
+export const create = asyncHandler(async (req, res) => {
+  const student = await studentService.create(req, req.body);
+  sendSuccess(res, student, 201);
+});
+
+// PATCH /api/v1/students/:studentId/status
+export const updateStatus = asyncHandler(async (req, res) => {
+  const student = await studentService.updateStatus(req, req.params.studentId, req.body.status);
+
+  sendSuccess(res, student, 200);
+});
+
+// PATCH /api/v1/students/:id/photo
+export const uploadPhoto = asyncHandler(async (req, res) => {
+  const student = await studentService.uploadPhoto(req, req.params.id, req.file);
+
+  sendSuccess(res, student, 200);
+});

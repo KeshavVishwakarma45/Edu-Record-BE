@@ -1,11 +1,20 @@
 import { Router } from 'express';
-import { listStudentsQuery } from './student.validation.js';
+
 import { auth } from '../../middleware/auth.js';
 import { requirePermission } from '../../middleware/requirePermission.js';
 import { validate } from '../../middleware/validate.js';
 import { tenantScope } from '../../middleware/tenantScope.js';
 import { PERMISSIONS } from '../../constants/permissions.js';
+
 import { uploadExcel } from '../../middleware/uploadExcel.js';
+import { uploadImage } from '../../middleware/upload.js';
+
+import {
+  listStudentsQuery,
+  createStudentSchema,
+  updateStudentStatusSchema,
+} from './student.validation.js';
+import { idParams } from '../../utils/validators.js';
 import * as controller from './student.controller.js';
 
 const router = Router();
@@ -37,6 +46,37 @@ router.post(
   requirePermission(PERMISSIONS.STUDENT_IMPORT),
   uploadExcel('file'),
   controller.importStudents,
+);
+
+// Add a new student
+router.post(
+  '/',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.STUDENT_WRITE),
+  validate({ body: createStudentSchema }),
+  controller.create,
+);
+
+// Update student status
+router.patch(
+  '/:studentId/status',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.STUDENT_WRITE),
+  validate({ body: updateStudentStatusSchema }),
+  controller.updateStatus,
+);
+
+// Upload or update student photo
+router.patch(
+  '/:id/photo',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.STUDENT_WRITE),
+  validate({ params: idParams }),
+  uploadImage('photo'),
+  controller.uploadPhoto,
 );
 
 export default router;
