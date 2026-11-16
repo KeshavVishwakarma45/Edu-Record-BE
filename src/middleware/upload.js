@@ -61,3 +61,4 @@ export const uploadImage = (fieldName) => makeUpload(fieldName, IMAGE_TYPES);
 export const uploadPdf = (fieldName) => makeUpload(fieldName, PDF_TYPES);
 export const uploadImageOrPdf = (fieldName) =>
   makeUpload(fieldName, [...IMAGE_TYPES, ...PDF_TYPES]);
+export const uploadJpegPng = (fieldName) => makeUpload(fieldName, ['image/jpeg', 'image/png']);
