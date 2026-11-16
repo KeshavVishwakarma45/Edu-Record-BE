@@ -7,6 +7,9 @@ import { PERMISSIONS } from '../../constants/permissions.js';
 
 import {
   inwardBatchIdParams,
+  createInwardBatchSchema,
+  listInwardBatchesQuery,
+  markMissingDocumentSchema,
   receiptParams,
   missingReceiveParams,
   missingUpdateParams,
@@ -89,3 +92,66 @@ pendingRouter.get(
 );
 
 export default router;
+
+// List all inward batches
+router.get(
+  '/',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.INWARD_READ),
+  validate({ query: listInwardBatchesQuery }),
+  controller.list,
+);
+
+// Get counts for an inward batch
+router.get(
+  '/:id/counts',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.INWARD_READ),
+  validate({ params: inwardBatchIdParams }),
+  controller.getCounts,
+);
+
+// Get missing documents for an inward batch
+router.get(
+  '/:id/missing',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.INWARD_READ),
+  validate({ params: inwardBatchIdParams }),
+  controller.getMissingDocuments,
+);
+
+// Mark a document as missing
+router.post(
+  '/:id/missing',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.INWARD_MANAGE),
+  validate({
+    params: inwardBatchIdParams,
+    body: markMissingDocumentSchema,
+  }),
+  controller.markDocumentMissing,
+);
+
+// Get one inward batch
+router.get(
+  '/:id',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.INWARD_READ),
+  validate({ params: inwardBatchIdParams }),
+  controller.getById,
+);
+
+// Create a new inward batch
+router.post(
+  '/',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.INWARD_MANAGE),
+  validate({ body: createInwardBatchSchema }),
+  controller.create,
+);
