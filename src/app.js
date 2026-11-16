@@ -16,7 +16,7 @@ import userRoutes from './modules/users/user.routes.js';
 import handoverRoutes from './modules/documents/handover.routes.js';
 import inwardRoutes, { pendingRouter } from './modules/inward/inward.routes.js';
 import studentRoutes from './modules/students/student.routes.js';
-
+import reportRoutes from './modules/reports/report.routes.js';
 export function createApp() {
   const app = express();
 
@@ -46,7 +46,7 @@ export function createApp() {
   api.use('/handover', handoverRoutes);
   api.use('/inward-batches', inwardRoutes);
   api.use('/inward-pending', pendingRouter);
-
+  api.use('/reports', reportRoutes);
   app.use('/api/v1', api);
 
   app.use(notFound);
