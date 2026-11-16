@@ -15,7 +15,7 @@ export const getById = asyncHandler(async (req, res) => {
 
 // GET /api/v1/students/import-template
 export const downloadImportTemplate = asyncHandler(async (req, res) => {
-  const buffer = await studentService.downloadImportTemplate();
+  const buffer = await studentService.downloadImportTemplate(req);
 
   res.setHeader(
     'Content-Type',

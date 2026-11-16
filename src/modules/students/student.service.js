@@ -8,6 +8,7 @@ import * as storage from '../../utils/storage.js';
 
 import { Student } from './student.model.js';
 import { Course } from '../courses/course.model.js';
+
 import { studentImportRowSchema } from './student.validation.js';
 
 import { scoped } from '../../utils/scoped.js';
@@ -34,7 +35,7 @@ const COLUMNS = [
   'address',
   'mobile',
   'admissionDate',
-  'courseId',
+  'courseShortCode',
   'branch',
   'batch',
   'previousSchool',
@@ -97,9 +98,22 @@ function getCellValue(value) {
 
   return typeof value === 'string' ? value.trim() : value;
 }
+function escapeRegex(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
-// Download Excel Template
-export async function downloadImportTemplate() {
+// Generate the downloadable Excel template
+export async function downloadImportTemplate(req) {
+  const courses = await Course.find(scoped(req))
+    .select('shortCode branch')
+    .sort({ shortCode: 1, branch: 1 })
+    .lean();
+
+  if (courses.length === 0) {
+    throw ApiError.notFound('No course found for the selected institute');
+  }
+
+  const sampleCourse = courses[0];
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('Students');
 
@@ -125,8 +139,8 @@ export async function downloadImportTemplate() {
     address: 'Bhopal',
     mobile: '9876543210',
     admissionDate: '2024-07-01',
-    courseId: 'PASTE_VALID_COURSE_ID',
-    branch: '',
+    courseShortCode: sampleCourse.shortCode,
+    branch: sampleCourse.branch || '',
     batch: '2024-27',
     previousSchool: '',
     status: 'Studying',
@@ -228,10 +242,17 @@ export async function importStudents(req) {
     }
 
     try {
-      const course = await Course.findOne({
+      // Check that the selected course belongs to this institute
+      const courseFilter = {
         ...scoped(req),
-        _id: studentData.courseId,
-      })
+        shortCode: new RegExp(`^${escapeRegex(studentData.courseShortCode)}$`, 'i'),
+      };
+      // Use branch to distinguish courses having the same short code
+      if (studentData.branch) {
+        courseFilter.branch = studentData.branch;
+      }
+
+      const matchingCourses = await Course.find(courseFilter)
         .populate({
           path: 'affiliationId',
           match: {
@@ -239,15 +260,34 @@ export async function importStudents(req) {
             instituteId: req.scope.instituteId,
           },
         })
+        .limit(2)
         .lean();
 
-      if (!course || !course.affiliationId) {
+      const validCourses = matchingCourses.filter((course) => course.affiliationId);
+
+      if (validCourses.length === 0) {
         errors.push({
           row: rowNumber,
-          messages: ['Invalid course or institute affiliation'],
+          messages: [`Invalid course short code or branch: ${studentData.courseShortCode}`],
         });
         continue;
       }
+
+      if (validCourses.length > 1) {
+        errors.push({
+          row: rowNumber,
+          messages: [
+            `Course short code ${studentData.courseShortCode} is ambiguous. Enter the matching branch in the branch column.`,
+          ],
+        });
+        continue;
+      }
+
+      const course = validCourses[0];
+
+      // Automatically convert short code into MongoDB Course ID
+      studentData.courseId = course._id;
+      delete studentData.courseShortCode;
 
       const universityId = course.affiliationId.universityId;
 
