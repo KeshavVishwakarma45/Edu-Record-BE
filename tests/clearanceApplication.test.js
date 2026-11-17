@@ -1,0 +1,435 @@
+import request from 'supertest';
+
+import { createApp } from '../src/app.js';
+
+import { Student } from '../src/modules/students/student.model.js';
+import { ClearanceApplication } from '../src/modules/clearance/clearanceApplication.model.js';
+import { ClearanceItem } from '../src/modules/clearance/clearanceItem.model.js';
+
+import { CATEGORIES } from '../src/constants/categories.js';
+import { GENDERS } from '../src/constants/genders.js';
+
+import { startDb, stopDb } from './helpers/db.js';
+import { createWorld, headersFor } from './helpers/fixtures.js';
+import { Department } from '../src/modules/institutes/department.model.js';
+const app = createApp();
+
+let world;
+let headers;
+let ssismStudent;
+let ssecStudent;
+let departmentHeaders;
+let sportsDepartment;
+let sportsItem;
+
+const applicationBody = {
+  lastClassAttended: 'B.Tech 4th Year',
+  leavingReason: 'Higher Studies',
+  documentsEnclosed: {
+    tenthMarksheet: true,
+    twelfthMarksheet: true,
+    yearSemesterMarksheets: true,
+  },
+  declarations: {
+    feesPaid: true,
+    duesCleared: true,
+    booksReturned: true,
+  },
+};
+
+async function createStudent(instituteCode, scholarNo) {
+  const institute = world.institutes[instituteCode.toLowerCase() === 'ssism' ? 'ssism' : 'ssec'];
+
+  return Student.create({
+    tenantId: world.tenantId,
+    instituteId: institute._id,
+    universityId: world.affiliations[instituteCode].universityId,
+    scholarNo,
+    name: 'Clearance Test Student',
+    fatherName: 'Test Father',
+    dob: new Date('2005-01-15'),
+    gender: GENDERS.MALE,
+    category: CATEGORIES.GEN,
+    admissionDate: new Date('2024-07-01'),
+    courseId: world.courses[instituteCode]._id,
+  });
+}
+async function setRoleHeaders(user, role, departmentIds = []) {
+  user.access[0].roleId = role._id;
+  user.access[0].departmentIds = departmentIds;
+
+  await user.save();
+
+  return headersFor(app, user, world.institutes.ssism);
+}
+beforeAll(async () => {
+  await startDb();
+
+  world = await createWorld();
+
+  headers = await headersFor(app, world.users.ssismTcClerk, world.institutes.ssism);
+
+  ssismStudent = await createStudent('SSISM', 'CLR001');
+  ssecStudent = await createStudent('SSEC', 'CLR002');
+});
+
+afterAll(stopDb);
+
+test('TC Clerk creates application and clearance items for all institute departments', async () => {
+  const res = await request(app)
+    .post('/api/v1/clearance/applications')
+    .set(headers)
+    .send({
+      ...applicationBody,
+      studentId: String(ssismStudent._id),
+    });
+
+  expect(res.status).toBe(201);
+  expect(res.body.success).toBe(true);
+
+  expect(res.body.data.application.studentId).toBe(String(ssismStudent._id));
+  expect(res.body.data.overallStatus).toBe('PENDING');
+
+  const departments = await ClearanceItem.find({
+    tenantId: world.tenantId,
+    instituteId: world.institutes.ssism._id,
+    applicationId: res.body.data.application._id,
+  }).lean();
+
+  const configuredDepartments = await import('../src/modules/institutes/department.model.js');
+
+  const expectedCount = await configuredDepartments.Department.countDocuments({
+    tenantId: world.tenantId,
+    instituteId: world.institutes.ssism._id,
+  });
+
+  expect(departments).toHaveLength(expectedCount);
+
+  expect(departments.every((item) => item.status === 'PENDING')).toBe(true);
+  expect(departments.every((item) => item.amountDue === 0)).toBe(true);
+
+  expect(res.body.data.clearanceItems).toHaveLength(expectedCount);
+});
+
+test('TC Clerk cannot submit another institute student', async () => {
+  const res = await request(app)
+    .post('/api/v1/clearance/applications')
+    .set(headers)
+    .send({
+      ...applicationBody,
+      studentId: String(ssecStudent._id),
+    });
+
+  expect(res.status).toBe(404);
+
+  const count = await ClearanceApplication.countDocuments({
+    tenantId: world.tenantId,
+    instituteId: world.institutes.ssism._id,
+  });
+
+  expect(count).toBe(1);
+});
+
+test('database prevents duplicate clearance items for one application and department', async () => {
+  const application = await ClearanceApplication.findOne({
+    tenantId: world.tenantId,
+    instituteId: world.institutes.ssism._id,
+    studentId: ssismStudent._id,
+  });
+
+  const originalItem = await ClearanceItem.findOne({
+    tenantId: world.tenantId,
+    instituteId: world.institutes.ssism._id,
+    applicationId: application._id,
+  }).lean();
+
+  await expect(
+    ClearanceItem.create({
+      tenantId: world.tenantId,
+      instituteId: world.institutes.ssism._id,
+      applicationId: application._id,
+      studentId: ssismStudent._id,
+      departmentId: originalItem.departmentId,
+      status: 'PENDING',
+    }),
+  ).rejects.toMatchObject({ code: 11000 });
+});
+
+test('TC Clerk can list applications with student and department details', async () => {
+  const res = await request(app)
+    .get('/api/v1/clearance/applications')
+    .query({
+      search: 'CLR001',
+      studentId: String(ssismStudent._id),
+      page: 1,
+      limit: 10,
+    })
+    .set(headers);
+
+  expect(res.status).toBe(200);
+  expect(res.body.success).toBe(true);
+  expect(res.body.meta).toMatchObject({
+    page: 1,
+    limit: 10,
+    total: 1,
+  });
+
+  expect(res.body.data).toHaveLength(1);
+
+  const application = res.body.data[0];
+
+  expect(application.student).toMatchObject({
+    name: 'Clearance Test Student',
+    scholarNo: 'CLR001',
+  });
+
+  expect(application).toHaveProperty('lastClassAttended');
+  expect(application).toHaveProperty('leavingReason');
+  expect(application).toHaveProperty('createdAt');
+
+  expect(application.overallStatus).toBe('PENDING');
+
+  expect(application.departmentWiseStatus).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        departmentName: 'Library',
+        status: 'PENDING',
+      }),
+    ]),
+  );
+});
+
+test('CLR-02 supports date filters and server-side pagination', async () => {
+  const application = await ClearanceApplication.findOne({
+    tenantId: world.tenantId,
+    instituteId: world.institutes.ssism._id,
+    studentId: ssismStudent._id,
+  }).lean();
+
+  const applicationDate = application.createdAt.toISOString().slice(0, 10);
+
+  const firstPage = await request(app)
+    .get('/api/v1/clearance/applications')
+    .query({
+      fromDate: applicationDate,
+      toDate: applicationDate,
+      page: 1,
+      limit: 1,
+    })
+    .set(headers);
+
+  expect(firstPage.status).toBe(200);
+  expect(firstPage.body.data).toHaveLength(1);
+  expect(firstPage.body.meta.total).toBe(1);
+
+  const secondPage = await request(app)
+    .get('/api/v1/clearance/applications')
+    .query({
+      page: 2,
+      limit: 1,
+    })
+    .set(headers);
+
+  expect(secondPage.status).toBe(200);
+  expect(secondPage.body.data).toHaveLength(0);
+  expect(secondPage.body.meta.total).toBe(1);
+});
+
+test('CLR-02 calculates overall status from department-wise statuses', async () => {
+  const application = await ClearanceApplication.findOne({
+    tenantId: world.tenantId,
+    instituteId: world.institutes.ssism._id,
+    studentId: ssismStudent._id,
+  }).lean();
+
+  const itemFilter = {
+    tenantId: world.tenantId,
+    instituteId: world.institutes.ssism._id,
+    applicationId: application._id,
+  };
+
+  await ClearanceItem.updateMany(itemFilter, {
+    $set: { status: 'CLEAR' },
+  });
+
+  const clearResponse = await request(app)
+    .get('/api/v1/clearance/applications')
+    .query({ studentId: String(ssismStudent._id) })
+    .set(headers);
+
+  expect(clearResponse.status).toBe(200);
+  expect(clearResponse.body.data[0].overallStatus).toBe('CLEAR');
+
+  await ClearanceItem.updateMany(itemFilter, {
+    $set: { status: 'NOT_CLEAR' },
+  });
+
+  const notClearResponse = await request(app)
+    .get('/api/v1/clearance/applications')
+    .query({ studentId: String(ssismStudent._id) })
+    .set(headers);
+
+  expect(notClearResponse.status).toBe(200);
+  expect(notClearResponse.body.data[0].overallStatus).toBe('NOT_CLEAR');
+});
+
+test('CLR-02 does not expose applications from another institute', async () => {
+  const res = await request(app)
+    .get('/api/v1/clearance/applications')
+    .query({
+      studentId: String(ssecStudent._id),
+    })
+    .set(headers);
+
+  expect(res.status).toBe(200);
+  expect(res.body.data).toHaveLength(0);
+  expect(res.body.meta.total).toBe(0);
+});
+
+test('Department In-charge sees only assigned queue and can update own department item', async () => {
+  const application = await ClearanceApplication.findOne({
+    tenantId: world.tenantId,
+    instituteId: world.institutes.ssism._id,
+    studentId: ssismStudent._id,
+  }).lean();
+
+  sportsDepartment = await Department.create({
+    tenantId: world.tenantId,
+    instituteId: world.institutes.ssism._id,
+    name: 'Sports',
+  });
+
+  sportsItem = await ClearanceItem.create({
+    tenantId: world.tenantId,
+    instituteId: world.institutes.ssism._id,
+    applicationId: application._id,
+    studentId: ssismStudent._id,
+    departmentId: sportsDepartment._id,
+    status: 'PENDING',
+    amountDue: 450,
+  });
+
+  departmentHeaders = await setRoleHeaders(
+    world.users.ssismAdmin,
+    world.roles.SSISM['Department In-charge'],
+    [world.departments.SSISM._id],
+  );
+
+  const queue = await request(app).get('/api/v1/clearance/queue').set(departmentHeaders);
+
+  expect(queue.status).toBe(200);
+  expect(queue.body.data).toHaveLength(1);
+  expect(queue.body.data[0].departmentName).toBe('Library');
+  expect(queue.body.data[0].student.name).toBe('Clearance Test Student');
+
+  const forbiddenQueue = await request(app)
+    .get('/api/v1/clearance/queue')
+    .query({ departmentId: String(sportsDepartment._id) })
+    .set(departmentHeaders);
+
+  expect(forbiddenQueue.status).toBe(403);
+
+  const libraryItem = await ClearanceItem.findOne({
+    tenantId: world.tenantId,
+    instituteId: world.institutes.ssism._id,
+    applicationId: application._id,
+    departmentId: world.departments.SSISM._id,
+  });
+
+  const update = await request(app)
+    .patch(`/api/v1/clearance/items/${libraryItem._id}`)
+    .set(departmentHeaders)
+    .send({
+      status: 'CLEAR',
+      remark: 'Library clearance completed',
+    });
+
+  expect(update.status).toBe(200);
+  expect(update.body.data.status).toBe('CLEAR');
+  expect(update.body.data.remark).toBe('Library clearance completed');
+  expect(update.body.data.statusUpdatedBy).toBe(String(world.users.ssismAdmin._id));
+  expect(update.body.data.statusUpdatedAt).toBeTruthy();
+
+  const forbiddenUpdate = await request(app)
+    .patch(`/api/v1/clearance/items/${sportsItem._id}`)
+    .set(departmentHeaders)
+    .send({ status: 'CLEAR' });
+
+  expect(forbiddenUpdate.status).toBe(404);
+});
+
+test('CLR-04 returns student profile with application and department-wise status', async () => {
+  const res = await request(app).get(`/api/v1/clearance/students/${ssismStudent._id}`).set(headers);
+
+  expect(res.status).toBe(200);
+
+  expect(res.body.data.student).toMatchObject({
+    name: 'Clearance Test Student',
+    scholarNo: 'CLR001',
+  });
+
+  expect(res.body.data.applications).toHaveLength(1);
+
+  const application = res.body.data.applications[0];
+
+  expect(application).toHaveProperty('overallStatus');
+  expect(application.departmentWiseStatus).toHaveLength(2);
+
+  expect(application.departmentWiseStatus).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ departmentName: 'Library', status: 'CLEAR' }),
+      expect.objectContaining({ departmentName: 'Sports', status: 'PENDING' }),
+    ]),
+  );
+
+  expect(application.overallStatus).toBe('PENDING');
+});
+
+test('Accounts can view and update pending dues, while department in-charge cannot access accounts dues', async () => {
+  const accountsHeaders = await setRoleHeaders(
+    world.users.ssismPrincipal,
+    world.roles.SSISM.Accounts,
+  );
+
+  const pendingDues = await request(app)
+    .get('/api/v1/clearance/accounts/pending-dues')
+    .query({ search: 'CLR001' })
+    .set(accountsHeaders);
+
+  expect(pendingDues.status).toBe(200);
+
+  expect(pendingDues.body.data).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        amountDue: 450,
+        departmentName: 'Sports',
+      }),
+    ]),
+  );
+
+  const forbiddenDues = await request(app)
+    .get('/api/v1/clearance/accounts/pending-dues')
+    .set(departmentHeaders);
+
+  expect(forbiddenDues.status).toBe(403);
+
+  const update = await request(app)
+    .patch(`/api/v1/clearance/items/${sportsItem._id}/dues`)
+    .set(accountsHeaders)
+    .send({
+      amountDue: 0,
+      remark: 'Outstanding dues paid',
+    });
+
+  expect(update.status).toBe(200);
+  expect(update.body.data.amountDue).toBe(0);
+  expect(update.body.data.remark).toBe('Outstanding dues paid');
+
+  const afterUpdate = await request(app)
+    .get('/api/v1/clearance/accounts/pending-dues')
+    .query({ search: 'CLR001' })
+    .set(accountsHeaders);
+
+  expect(afterUpdate.status).toBe(200);
+  expect(afterUpdate.body.data).toHaveLength(0);
+});

@@ -33,7 +33,12 @@ function invalidFile(message) {
 function makeUpload(fieldName, allowedTypes) {
   const parser = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: MAX_SIZE.pdf, files: 1 },
+    limits: {
+      fileSize: allowedTypes.every((type) => IMAGE_TYPES.includes(type))
+        ? MAX_SIZE.image
+        : MAX_SIZE.pdf,
+      files: 1,
+    },
     fileFilter: (_req, file, done) => {
       if (allowedTypes.includes(file.mimetype)) return done(null, true);
       done(invalidFile(`Only ${allowedTypes.join(', ')} files are allowed`));

@@ -41,8 +41,25 @@ const studentSchema = new mongoose.Schema(
     previousSchool: { type: String, trim: true, default: '' },
     photo: { type: ObjectId, ref: 'File', default: null },
 
-    status: { type: String, enum: STUDENT_STATUS_LIST, default: STUDENT_STATUSES.STUDYING },
-    isLegacy: { type: Boolean, default: false }, // imported from old records (MIG-06)
+    status: {
+      type: String,
+      enum: STUDENT_STATUS_LIST,
+      default: STUDENT_STATUSES.STUDYING,
+    },
+
+    isLegacy: { type: Boolean, default: false },
+
+    // Soft delete fields
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+
+    deletedBy: {
+      type: ObjectId,
+      ref: 'User',
+      default: null,
+    },
   },
   { timestamps: true },
 );

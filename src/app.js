@@ -17,6 +17,7 @@ import handoverRoutes from './modules/documents/handover.routes.js';
 import inwardRoutes, { pendingRouter } from './modules/inward/inward.routes.js';
 import studentRoutes from './modules/students/student.routes.js';
 import reportRoutes from './modules/reports/report.routes.js';
+import clearanceRoutes from './modules/clearance/clearance.routes.js';
 export function createApp() {
   const app = express();
 
@@ -39,6 +40,7 @@ export function createApp() {
   api.use('/auth', authRoutes);
   api.use('/courses', courseRoutes);
   api.use('/students', studentRoutes);
+  api.use('/clearance', clearanceRoutes);
   api.use('/files', fileRoutes);
   api.use('/organisation', organisationRoutes);
   api.use('/roles', roleRoutes);

@@ -10,6 +10,8 @@ import '../modules/users/user.model.js';
 import '../modules/audit/auditLog.model.js';
 import '../modules/files/file.model.js';
 import '../modules/courses/course.model.js';
+import '../modules/clearance/clearanceApplication.model.js';
+import '../modules/clearance/clearanceItem.model.js';
 import '../modules/students/student.model.js';
 import '../modules/documents/document.model.js';
 import '../modules/documents/handover.model.js';
