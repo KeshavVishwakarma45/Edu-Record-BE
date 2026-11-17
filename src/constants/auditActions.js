@@ -11,8 +11,11 @@ export const AUDIT_ACTIONS = Object.freeze({
 
   DISABLE: 'DISABLE',
   ENABLE: 'ENABLE',
-  COMBINE: 'COMBINE',
-  SEPARATE: 'SEPARATE',
+
+  COMBINE: 'COMBINE', // institutes combined into a unit
+  SEPARATE: 'SEPARATE', // a unit split back into separate institutes
+
+  HANDOVER: 'HANDOVER',
 
   // TC Generation audit actions
   TC_SUBMITTED: 'TC_SUBMITTED',

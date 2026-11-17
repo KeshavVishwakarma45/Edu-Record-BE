@@ -161,9 +161,22 @@ const studentSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Legacy student record
     isLegacy: {
       type: Boolean,
       default: false,
+    },
+
+    // Soft delete fields
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+
+    deletedBy: {
+      type: ObjectId,
+      ref: 'User',
+      default: null,
     },
   },
   {

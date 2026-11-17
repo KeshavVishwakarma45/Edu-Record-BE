@@ -8,11 +8,11 @@ import { PERMISSIONS } from '../../constants/permissions.js';
 
 import { uploadExcel } from '../../middleware/uploadExcel.js';
 import { uploadImage } from '../../middleware/upload.js';
-
 import {
   listStudentsQuery,
   createStudentSchema,
   updateStudentStatusSchema,
+  updateStudentSchema,
 } from './student.validation.js';
 import { idParams } from '../../utils/validators.js';
 import * as controller from './student.controller.js';
@@ -66,6 +66,28 @@ router.post(
   requirePermission(PERMISSIONS.STUDENT_WRITE),
   validate({ body: createStudentSchema }),
   controller.create,
+);
+// Update student details
+router.patch(
+  '/:id',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.STUDENT_WRITE),
+  validate({
+    params: idParams,
+    body: updateStudentSchema,
+  }),
+  controller.update,
+);
+
+// Soft delete student
+router.delete(
+  '/:id',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.STUDENT_WRITE),
+  validate({ params: idParams }),
+  controller.remove,
 );
 
 // Update student status

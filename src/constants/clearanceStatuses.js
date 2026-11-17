@@ -1,0 +1,12 @@
+export const CLEARANCE_STATUSES = Object.freeze({
+  PENDING: 'PENDING',
+  CLEAR: 'CLEAR',
+  NOT_CLEAR: 'NOT_CLEAR',
+});
+
+export const CLEARANCE_STATUS_LIST = Object.values(CLEARANCE_STATUSES);
+
+export const CLEARANCE_ACTION_STATUSES = Object.freeze([
+  CLEARANCE_STATUSES.CLEAR,
+  CLEARANCE_STATUSES.NOT_CLEAR,
+]);

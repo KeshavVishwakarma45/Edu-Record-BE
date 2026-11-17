@@ -1,5 +1,4 @@
 import Joi from 'joi';
-
 import { objectId, listQuery, mobile } from '../../utils/validators.js';
 import { STUDENT_STATUS_LIST } from '../../constants/statuses.js';
 import { GENDER_LIST } from '../../constants/genders.js';
@@ -42,7 +41,7 @@ export const studentImportRowSchema = Joi.object({
   address: Joi.string().trim().max(500).allow(''),
   mobile: mobile().allow(''),
   admissionDate: Joi.date().iso().required(),
-  courseId: objectId().required(),
+  courseShortCode: Joi.string().trim().min(1).max(50).required(),
   branch: Joi.string().trim().max(100).allow(''),
   batch: Joi.string().trim().max(30).allow(''),
   previousSchool: Joi.string().trim().max(150).allow(''),
@@ -84,3 +83,45 @@ export const updateStudentStatusSchema = Joi.object({
     .valid(...STUDENT_STATUS_LIST)
     .required(),
 });
+// Update Student Details
+// Update Student Details
+export const updateStudentSchema = Joi.object({
+  scholarNo: Joi.string().trim().min(1).max(30),
+
+  // No default(null): omitted fields must remain unchanged in PATCH
+  enrollmentNo: Joi.string().trim().max(50).allow('', null),
+
+  rollNo: Joi.string().trim().max(30).allow(''),
+
+  name: Joi.string().trim().min(2).max(100),
+
+  fatherName: Joi.string().trim().min(2).max(100),
+
+  motherName: Joi.string().trim().max(100).allow(''),
+
+  dob: Joi.date().iso(),
+
+  gender: Joi.string().valid(...GENDER_LIST),
+
+  category: Joi.string().valid(...CATEGORY_LIST),
+
+  religion: Joi.string().trim().max(50).allow(''),
+
+  address: Joi.string().trim().max(500).allow(''),
+
+  mobile: mobile().allow(''),
+
+  admissionDate: Joi.date().iso(),
+
+  courseId: objectId(),
+
+  branch: Joi.string().trim().max(100).allow(''),
+
+  batch: Joi.string().trim().max(30).allow(''),
+
+  previousSchool: Joi.string().trim().max(150).allow(''),
+
+  status: Joi.string().valid(...STUDENT_STATUS_LIST),
+})
+  .min(1)
+  .unknown(false);
