@@ -40,7 +40,7 @@ const tcSchema = new mongoose.Schema(
     // Current TC status
     status: {
       type: String,
-      enum: ['draft', 'submitted', 'approved', 'rejected'],
+      enum: ['draft', 'submitted', 'approved', 'rejected', 'issued', 'cancelled'],
       default: 'draft',
     },
 
