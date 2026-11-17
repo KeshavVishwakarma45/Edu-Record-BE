@@ -16,3 +16,4 @@ import '../modules/students/student.model.js';
 import '../modules/documents/document.model.js';
 import '../modules/documents/handover.model.js';
 import '../modules/inward/inward.model.js';
+import '../modules/tc/tc.model.js';

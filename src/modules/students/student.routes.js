@@ -16,7 +16,8 @@ import {
 } from './student.validation.js';
 import { idParams } from '../../utils/validators.js';
 import * as controller from './student.controller.js';
-
+import { studentIdParams } from '../tc/tc.validation.js';
+import * as tcController from '../tc/tc.controller.js';
 const router = Router();
 
 // Student Listing
@@ -111,4 +112,23 @@ router.patch(
   controller.uploadPhoto,
 );
 
+// Check Student TC Eligibility
+router.get(
+  '/:studentId/tc-eligibility',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.TC_APPLY),
+  validate({ params: studentIdParams }),
+  tcController.checkEligibility,
+);
+
+// Get Student TC Data for Preview
+router.get(
+  '/:studentId/tc-data',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.TC_APPLY),
+  validate({ params: studentIdParams }),
+  tcController.getTCData,
+);
 export default router;

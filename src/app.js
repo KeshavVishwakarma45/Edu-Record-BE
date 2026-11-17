@@ -16,8 +16,11 @@ import userRoutes from './modules/users/user.routes.js';
 import handoverRoutes from './modules/documents/handover.routes.js';
 import inwardRoutes, { pendingRouter } from './modules/inward/inward.routes.js';
 import studentRoutes from './modules/students/student.routes.js';
+import tcRoutes from './modules/tc/tc.routes.js';
 import reportRoutes from './modules/reports/report.routes.js';
 import clearanceRoutes from './modules/clearance/clearance.routes.js';
+
+// Builds the Express app. server.js starts it; tests use it directly with Supertest.
 export function createApp() {
   const app = express();
 
@@ -40,6 +43,7 @@ export function createApp() {
   api.use('/auth', authRoutes);
   api.use('/courses', courseRoutes);
   api.use('/students', studentRoutes);
+  api.use('/tcs', tcRoutes);
   api.use('/clearance', clearanceRoutes);
   api.use('/files', fileRoutes);
   api.use('/organisation', organisationRoutes);
@@ -49,6 +53,7 @@ export function createApp() {
   api.use('/inward-batches', inwardRoutes);
   api.use('/inward-pending', pendingRouter);
   api.use('/reports', reportRoutes);
+
   app.use('/api/v1', api);
 
   app.use(notFound);
