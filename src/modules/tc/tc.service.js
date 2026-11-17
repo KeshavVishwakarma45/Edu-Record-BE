@@ -668,7 +668,11 @@ export async function history(req, id) {
     entity: ENTITY,
     entityId: tc._id,
   })
-    .populate('userId', 'name email')
+    .populate({
+      path: 'userId',
+      select: 'name email',
+      match: { tenantId: req.scope.tenantId },
+    })
     .sort({ at: 1 })
     .lean();
 
