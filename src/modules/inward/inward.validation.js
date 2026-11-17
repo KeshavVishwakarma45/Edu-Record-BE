@@ -55,7 +55,6 @@ export const inwardPendingQuery = listQuery(['followUpDate', 'createdAt', 'docum
 // Create a new inward batch
 export const createInwardBatchSchema = Joi.object({
   universityId: objectId().required().label('University'),
-  instituteId: objectId().required().label('Institute'),
   courseId: objectId().required().label('Course'),
   examTerm: Joi.string().trim().min(1).max(30).required(),
   examSession: Joi.object({

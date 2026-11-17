@@ -12,4 +12,5 @@ export const AUDIT_ACTIONS = Object.freeze({
   ENABLE: 'ENABLE',
   COMBINE: 'COMBINE', // institutes combined into a unit
   SEPARATE: 'SEPARATE', // a unit split back into separate institutes
+  HANDOVER: 'HANDOVER',
 });
