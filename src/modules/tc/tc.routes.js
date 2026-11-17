@@ -7,7 +7,7 @@ import { validate } from '../../middleware/validate.js';
 
 import { PERMISSIONS } from '../../constants/permissions.js';
 
-import { createTcSchema, listTcsQuery, tcIdParams } from './tc.validation.js';
+import { createTcSchema, listTcsQuery, tcIdParams, updateTcSchema } from './tc.validation.js';
 import * as tcController from './tc.controller.js';
 const router = Router();
 
@@ -39,5 +39,15 @@ router.get(
   requirePermission(PERMISSIONS.TC_READ),
   validate({ params: tcIdParams }),
   tcController.getTCById,
+);
+
+// Update an existing TC draft
+router.patch(
+  '/:id',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.TC_DRAFT),
+  validate({ params: tcIdParams, body: updateTcSchema }),
+  tcController.updateTC,
 );
 export default router;

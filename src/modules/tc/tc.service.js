@@ -13,6 +13,8 @@ import { findScopedOr404 } from '../../utils/findScoped.js';
 import { scoped } from '../../utils/scoped.js';
 import { ApiError } from '../../utils/ApiError.js';
 import { searchFilter, sortOption, pageOptions } from '../../utils/listQuery.js';
+import { audit } from '../../utils/audit.js';
+import { AUDIT_ACTIONS } from '../../constants/auditActions.js';
 // Audit entity name
 
 // -------------------------------------------------------------------
@@ -211,4 +213,24 @@ export async function getTCById(req, id) {
     clearanceSummary: preview.clearanceSummary,
     clearanceCheckAvailable: preview.clearanceCheckAvailable,
   };
+}
+
+// -------------------------------------------------------------------
+// updateTC(req, id, changes)
+// Updates an existing TC only when its status is draft.
+// -------------------------------------------------------------------
+
+export async function updateTC(req, id, changes) {
+  const tc = await findScopedOr404(req, TC, id, 'TC');
+
+  if (tc.status !== 'draft') {
+    throw ApiError.conflict('Only draft TCs can be updated');
+  }
+  const before = tc.toObject();
+
+  tc.set(changes);
+  tc.updatedBy = req.user.id;
+  await tc.save();
+  await audit(req, AUDIT_ACTIONS.UPDATE, 'tc', tc._id, before, tc);
+  return tc;
 }

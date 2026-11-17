@@ -35,3 +35,10 @@ export const getTCById = asyncHandler(async (req, res) => {
 
   sendSuccess(res, result);
 });
+
+// Update an existing TC draft
+export const updateTC = asyncHandler(async (req, res) => {
+  const result = await tcService.updateTC(req, req.params.id, req.body);
+
+  sendSuccess(res, result);
+});
