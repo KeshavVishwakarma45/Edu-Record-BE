@@ -1,0 +1,23 @@
+import Joi from 'joi';
+import { objectId, listQuery, idParams } from '../../utils/validators.js';
+
+export const studentIdParams = Joi.object({
+  studentId: objectId().required().label('Student ID'),
+});
+
+export const createTcSchema = Joi.object({
+  studentId: objectId().required(),
+  reasonForLeaving: Joi.string().required().trim(),
+  conduct: Joi.string().required().trim(),
+});
+
+export const listTcsQuery = listQuery(['createdAt', 'status', 'refNo', 'bookSerial'], {
+  status: Joi.string().valid('draft', 'submitted', 'approved', 'rejected').allow(''),
+});
+
+export const updateTcSchema = Joi.object({
+  reasonForLeaving: Joi.string().trim(),
+  conduct: Joi.string().trim(),
+}).min(1);
+
+export const tcIdParams = idParams;
