@@ -52,3 +52,16 @@ export const uploadPhoto = asyncHandler(async (req, res) => {
 
   sendSuccess(res, student, 200);
 });
+// PATCH /api/v1/students/:id
+export const update = asyncHandler(async (req, res) => {
+  const student = await studentService.update(req, req.params.id, req.body);
+
+  sendSuccess(res, student, 200);
+});
+
+// DELETE /api/v1/students/:id
+export const remove = asyncHandler(async (req, res) => {
+  const result = await studentService.remove(req, req.params.id);
+
+  sendSuccess(res, result, 200);
+});

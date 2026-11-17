@@ -48,6 +48,7 @@ export async function list(req) {
 
   const filter = {
     ...scoped(req),
+    deletedAt: null,
     ...searchFilter(search, [
       'name',
       'fatherName',
@@ -75,10 +76,24 @@ export async function list(req) {
 }
 
 // Get Single Student
-export function getById(req, id) {
-  return findScopedOr404(req, Student, id, ENTITY);
-}
+export async function getById(req, id) {
+  const student = await findScopedOr404(req, Student, id, ENTITY);
 
+  if (student.deletedAt) {
+    throw ApiError.notFound('Student not found');
+  }
+
+  return student;
+}
+async function getActiveStudent(req, studentId) {
+  const student = await findScopedOr404(req, Student, studentId, ENTITY);
+
+  if (student.deletedAt) {
+    throw ApiError.notFound('Student not found');
+  }
+
+  return student;
+}
 // Convert Excel cell values into simple values
 function getCellValue(value) {
   if (value === null || value === undefined) return '';
@@ -463,13 +478,148 @@ export async function create(req, data) {
 
   return student;
 }
+// PATCH /api/v1/students/:id
+export async function update(req, studentId, data) {
+  // Verify student exists, belongs to the selected institute and is active.
+  const existingStudent = await getActiveStudent(req, studentId);
 
+  // Verify the selected course belongs to this institute.
+  const universityId = await checkCourse(req, data.courseId ?? existingStudent.courseId);
+
+  const changes = { ...data };
+
+  // Empty enrollment number should be stored as null.
+  const hasEnrollmentNo = Object.prototype.hasOwnProperty.call(changes, 'enrollmentNo');
+
+  if (hasEnrollmentNo) {
+    changes.enrollmentNo = changes.enrollmentNo || null;
+  }
+
+  return withTransaction(async (session) => {
+    // Fetch the active student again inside the transaction.
+    const student = await Student.findOne({
+      ...scoped(req),
+      _id: studentId,
+      deletedAt: null,
+    }).session(session);
+
+    if (!student) {
+      throw ApiError.notFound('Student not found');
+    }
+
+    const oldStudent = student.toObject();
+
+    // Check duplicate scholar number.
+    // Deleted records are included because the existing unique index
+    // reserves their scholar numbers.
+    const scholarNo = changes.scholarNo ?? student.scholarNo;
+
+    const existingScholar = await Student.exists({
+      ...scoped(req),
+      scholarNo,
+      _id: { $ne: student._id },
+    }).session(session);
+
+    if (existingScholar) {
+      throw ApiError.conflict('Scholar number already exists', [
+        {
+          field: 'scholarNo',
+          message: 'Already exists',
+        },
+      ]);
+    }
+
+    // Check duplicate enrollment number across the university.
+    const enrollmentNo = hasEnrollmentNo ? changes.enrollmentNo : student.enrollmentNo;
+
+    if (enrollmentNo) {
+      const existingEnrollment = await Student.exists({
+        tenantId: req.scope.tenantId,
+        universityId,
+        enrollmentNo,
+        _id: { $ne: student._id },
+      }).session(session);
+
+      if (existingEnrollment) {
+        throw ApiError.conflict('Enrollment number already exists', [
+          {
+            field: 'enrollmentNo',
+            message: 'Already exists',
+          },
+        ]);
+      }
+    }
+
+    // Update only the fields supplied by the frontend.
+    student.set({
+      ...changes,
+      universityId,
+      updatedBy: req.user.id,
+    });
+
+    await student.save({ session });
+
+    // Audit and student update commit together.
+    await audit(
+      req,
+      AUDIT_ACTIONS.UPDATE,
+      ENTITY,
+      student._id,
+      oldStudent,
+      student.toObject(),
+      session,
+    );
+
+    return student;
+  });
+}
+// DELETE /api/v1/students/:id
+// DELETE /api/v1/students/:id
+export async function remove(req, studentId) {
+  // Verify institute scope and active student.
+  await getActiveStudent(req, studentId);
+
+  return withTransaction(async (session) => {
+    const student = await Student.findOne({
+      ...scoped(req),
+      _id: studentId,
+      deletedAt: null,
+    }).session(session);
+
+    if (!student) {
+      throw ApiError.notFound('Student not found');
+    }
+
+    const oldStudent = student.toObject();
+
+    // Soft delete only. Never permanently delete the document.
+    student.deletedAt = new Date();
+    student.deletedBy = req.user.id;
+    student.updatedBy = req.user.id;
+
+    await student.save({ session });
+
+    // Maintain audit history in the same transaction.
+    await audit(
+      req,
+      AUDIT_ACTIONS.DELETE,
+      ENTITY,
+      student._id,
+      oldStudent,
+      student.toObject(),
+      session,
+    );
+
+    return {
+      id: student._id,
+      deletedAt: student.deletedAt,
+      deletedBy: student.deletedBy,
+    };
+  });
+}
 // Update existing student's status
 export async function updateStatus(req, studentId, status) {
-  const student = await Student.findOne({
-    ...scoped(req),
-    _id: studentId,
-  });
+  const student = await getActiveStudent(req, studentId);
 
   if (!student) {
     throw ApiError.notFound('Student not found');
@@ -488,46 +638,72 @@ export async function updateStatus(req, studentId, status) {
 }
 
 // Upload or update student's photo
+// PATCH /api/v1/students/:id/photo
 export async function uploadPhoto(req, studentId, uploaded) {
-  const student = await Student.findOne({
-    ...scoped(req),
-    _id: studentId,
-  });
-
-  if (!student) {
-    throw ApiError.notFound('Student not found');
-  }
-
   if (!uploaded) {
     throw ApiError.badRequest('Please upload a student photo');
   }
 
-  const oldStudent = student.toObject();
+  // Check student scope and prevent photo updates on deleted students.
+  await getActiveStudent(req, studentId);
 
-  const oldPhoto = student.photo
-    ? await File.findOne({
-        ...scoped(req),
-        _id: student.photo,
-      })
-    : null;
-
+  // Save new photo first.
   const newFile = await storage.save(req, uploaded);
 
-  student.photo = newFile._id;
-  student.updatedBy = req.user.id;
+  let oldPhoto = null;
+  let updatedStudent;
 
   try {
-    await student.save();
+    updatedStudent = await withTransaction(async (session) => {
+      const student = await Student.findOne({
+        ...scoped(req),
+        _id: studentId,
+        deletedAt: null,
+      }).session(session);
+
+      if (!student) {
+        throw ApiError.notFound('Student not found');
+      }
+
+      const oldStudent = student.toObject();
+
+      // Find existing photo inside the same institute.
+      if (student.photo) {
+        oldPhoto = await File.findOne({
+          ...scoped(req),
+          _id: student.photo,
+        }).session(session);
+      }
+
+      // Replace photo reference.
+      student.photo = newFile._id;
+      student.updatedBy = req.user.id;
+
+      await student.save({ session });
+
+      // Audit the photo replacement.
+      await audit(
+        req,
+        AUDIT_ACTIONS.UPDATE,
+        ENTITY,
+        student._id,
+        oldStudent,
+        student.toObject(),
+        session,
+      );
+
+      return student;
+    });
   } catch (error) {
-    await storage.remove(newFile);
+    // If replacement fails, clean up the newly uploaded file.
+    await storage.remove(newFile).catch(() => {});
     throw error;
   }
 
-  await audit(req, AUDIT_ACTIONS.UPDATE, ENTITY, student._id, oldStudent, student.toObject());
-
+  // Delete old photo only after the new reference and audit are committed.
   if (oldPhoto) {
     await storage.remove(oldPhoto);
   }
 
-  return student;
+  return updatedStudent;
 }
