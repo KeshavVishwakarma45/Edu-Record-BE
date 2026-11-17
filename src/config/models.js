@@ -14,3 +14,5 @@ import '../modules/files/file.model.js';
 import '../modules/courses/course.model.js';
 import '../modules/students/student.model.js';
 import '../modules/inward/inward.model.js';
+import '../modules/tc/tcSeries.model.js';
+import '../modules/tc/tc.model.js';

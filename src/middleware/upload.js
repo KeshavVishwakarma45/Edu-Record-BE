@@ -61,3 +61,53 @@ export const uploadImage = (fieldName) => makeUpload(fieldName, IMAGE_TYPES);
 export const uploadPdf = (fieldName) => makeUpload(fieldName, PDF_TYPES);
 export const uploadImageOrPdf = (fieldName) =>
   makeUpload(fieldName, [...IMAGE_TYPES, ...PDF_TYPES]);
+
+// Upload two images for final TC handover.
+// Multipart field names:
+// 1. handoverPhoto
+// 2. receiverSignature
+
+export const uploadImages = () => {
+  const parser = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+      fileSize: MAX_SIZE.image,
+      files: 2,
+    },
+    fileFilter: (_req, file, done) => {
+      if (!IMAGE_TYPES.includes(file.mimetype)) {
+        return done(invalidFile('Only JPG, PNG and WEBP images are allowed'));
+      }
+
+      done(null, true);
+    },
+  }).fields([
+    { name: 'handoverPhoto', maxCount: 1 },
+    { name: 'receiverSignature', maxCount: 1 },
+  ]);
+
+  return (req, res, next) => {
+    parser(req, res, (err) => {
+      if (err) return next(err);
+
+      const handoverPhoto = req.files?.handoverPhoto?.[0];
+      const receiverSignature = req.files?.receiverSignature?.[0];
+
+      if (!handoverPhoto || !receiverSignature) {
+        return next(invalidFile('Both handoverPhoto and receiverSignature are required'));
+      }
+
+      for (const file of [handoverPhoto, receiverSignature]) {
+        if (file.size > MAX_SIZE.image) {
+          return next(invalidFile('Each image must be 2 MB or smaller'));
+        }
+
+        if (!looksLike(file.buffer, file.mimetype)) {
+          return next(invalidFile('The file content does not match its type'));
+        }
+      }
+
+      next();
+    });
+  };
+};
