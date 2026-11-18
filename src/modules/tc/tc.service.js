@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-
+import { findScopedOr404 } from '../../utils/findScoped.js';
 import { TC } from './tc.model.js';
 import { Student } from '../students/student.model.js';
 import { Course } from '../courses/course.model.js';
@@ -65,19 +65,22 @@ async function checkMandatoryClearances(req, tc) {
 }
 
 async function findTc(req, id, session = null) {
-  let query = TC.findOne({
-    ...scoped(req),
-    _id: id,
-  });
-
-  if (session) {
-    query = query.session(session);
+  // Normal requests use the scoped helper so cross-institute
+  // access attempts are recorded in the audit log.
+  if (!session) {
+    return findScopedOr404(req, TC, id, 'tc');
   }
 
-  const tc = await query;
+  // Preserve the existing transaction session for transactional operations.
+  const tc = await TC.findOne({
+    ...scoped(req),
+    _id: id,
+  }).session(session);
 
   if (!tc) {
-    throw ApiError.notFound('TC not found');
+    // Log cross-institute access using the shared scoped helper.
+    // A genuinely non-existent ID will still return 404 without an audit entry.
+    await findScopedOr404(req, TC, id, 'tc');
   }
 
   return tc;

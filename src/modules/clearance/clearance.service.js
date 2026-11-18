@@ -16,6 +16,7 @@ const ENTITY = 'clearance_application';
 
 // CLR-01 and CLR-02: Create TC application and department-wise clearance items.
 export async function createApplication(req, data) {
+  ensureSuperAdminReadOnly(req);
   return withTransaction(async (session) => {
     const scope = scoped(req);
 
@@ -427,6 +428,7 @@ function calculateOverallStatus(items) {
 
 // CLR-03: Department in-charge updates their own clearance item.
 export async function updateClearanceItem(req, itemId, changes) {
+  ensureSuperAdminReadOnly(req);
   const assignedIds = getAssignedDepartmentIds(req);
 
   const item = await ClearanceItem.findOne({
@@ -588,9 +590,15 @@ export async function listPendingDues(req) {
 
   return { rows, meta: { page, limit, total } };
 }
-
+// Super Admin can monitor clearance data but cannot perform operational updates.
+function ensureSuperAdminReadOnly(req) {
+  if (req.user?.isSuperAdmin) {
+    throw ApiError.forbidden('Super Admin has view-only access to clearance');
+  }
+}
 // CLR-05: Accounts manually updates the outstanding amount and remark.
 export async function updateClearanceDues(req, itemId, changes) {
+  ensureSuperAdminReadOnly(req);
   ensureAccountsAccess(req);
 
   const item = await ClearanceItem.findOne({

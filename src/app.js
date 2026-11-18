@@ -22,7 +22,7 @@ import inwardRoutes, { pendingRouter } from './modules/inward/inward.routes.js';
 import reportRoutes from './modules/reports/report.routes.js';
 import clearanceRoutes from './modules/clearance/clearance.routes.js';
 import tcRoutes from './modules/tc/tc.routes.js';
-
+import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
 // Builds the Express app. server.js starts it; tests use it directly with Supertest.
 export function createApp() {
   const app = express();
@@ -68,6 +68,7 @@ export function createApp() {
   api.use('/inward-pending', pendingRouter);
   api.use('/reports', reportRoutes);
   api.use('/tcs', tcRoutes);
+  api.use('/dashboard', dashboardRoutes);
 
   // Mount API router only once
   app.use('/api/v1', api);
