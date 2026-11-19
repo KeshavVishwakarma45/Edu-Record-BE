@@ -433,3 +433,202 @@ test('Accounts can view and update pending dues, while department in-charge cann
   expect(afterUpdate.status).toBe(200);
   expect(afterUpdate.body.data).toHaveLength(0);
 });
+
+test('Department In-charge APIs are department-scoped and record history', async () => {
+  const application = await ClearanceApplication.findOne({
+    tenantId: world.tenantId,
+    instituteId: world.institutes.ssism._id,
+    studentId: ssismStudent._id,
+  }).lean();
+
+  const libraryItem = await ClearanceItem.findOne({
+    tenantId: world.tenantId,
+    instituteId: world.institutes.ssism._id,
+    applicationId: application._id,
+    departmentId: world.departments.SSISM._id,
+  });
+
+  // 1. Application details: only the assigned department is returned.
+  const details = await request(app)
+    .get(`/api/v1/clearance/applications/${application._id}`)
+    .set(departmentHeaders);
+
+  expect(details.status).toBe(200);
+  expect(details.body.success).toBe(true);
+
+  expect(details.body.data.student).toMatchObject({
+    name: 'Clearance Test Student',
+    scholarNo: 'CLR001',
+  });
+
+  expect(details.body.data.application.documentsEnclosed.tenthMarksheet).toBe(true);
+  expect(details.body.data.application.submittedDocuments).toContain('tenthMarksheet');
+
+  expect(details.body.data.departmentClearances).toHaveLength(1);
+  expect(details.body.data.departmentClearances[0].department.name).toBe('Library');
+  expect(details.body.data.departmentClearances[0].verificationStatus).toBe('CLEAR');
+
+  // 2. Pending count is calculated for assigned departments only.
+  const pendingCount = await request(app)
+    .get('/api/v1/clearance/queue/pending-count')
+    .set(departmentHeaders);
+
+  expect(pendingCount.status).toBe(200);
+  expect(pendingCount.body.data.pendingCount).toBe(0);
+
+  // 3. Frontend dateFrom/dateTo aliases work.
+  const queue = await request(app)
+    .get('/api/v1/clearance/queue')
+    .query({
+      dateFrom: application.createdAt.toISOString().slice(0, 10),
+      dateTo: application.createdAt.toISOString().slice(0, 10),
+    })
+    .set(departmentHeaders);
+
+  expect(queue.status).toBe(200);
+  expect(queue.body.data).toHaveLength(1);
+
+  // 4. NOT_CLEAR must contain a reason.
+  const missingReason = await request(app)
+    .patch(`/api/v1/clearance/items/${libraryItem._id}`)
+    .set(departmentHeaders)
+    .send({ status: 'NOT_CLEAR' });
+
+  expect(missingReason.status).toBe(400);
+
+  // 5. Remarks can be updated without changing the status.
+  const remarkOnly = await request(app)
+    .patch(`/api/v1/clearance/items/${libraryItem._id}`)
+    .set(departmentHeaders)
+    .send({ remark: 'Rechecked by Library' });
+
+  expect(remarkOnly.status).toBe(200);
+  expect(remarkOnly.body.data.status).toBe('CLEAR');
+  expect(remarkOnly.body.data.remark).toBe('Rechecked by Library');
+
+  // 6. Mark the item NOT_CLEAR with a mandatory reason.
+  const markNotClear = await request(app)
+    .patch(`/api/v1/clearance/items/${libraryItem._id}`)
+    .set(departmentHeaders)
+    .send({
+      status: 'NOT_CLEAR',
+      remark: 'Library book has not been returned',
+    });
+
+  expect(markNotClear.status).toBe(200);
+  expect(markNotClear.body.data.status).toBe('NOT_CLEAR');
+
+  // 7. Verify that the application details show the latest status.
+  const updatedDetails = await request(app)
+    .get(`/api/v1/clearance/applications/${application._id}`)
+    .set(departmentHeaders);
+
+  expect(updatedDetails.status).toBe(200);
+  expect(updatedDetails.body.data.departmentClearances[0]).toMatchObject({
+    verificationStatus: 'NOT_CLEAR',
+    remarks: 'Library book has not been returned',
+  });
+
+  // 8. History contains the department's status update.
+  const history = await request(app)
+    .get('/api/v1/clearance/history')
+    .query({
+      studentId: String(ssismStudent._id),
+      status: 'NOT_CLEAR',
+      page: 1,
+      limit: 10,
+    })
+    .set(departmentHeaders);
+
+  expect(history.status).toBe(200);
+  expect(history.body.success).toBe(true);
+  expect(history.body.meta.total).toBeGreaterThanOrEqual(1);
+
+  expect(history.body.data).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        department: expect.objectContaining({ name: 'Library' }),
+        current: expect.objectContaining({
+          status: 'NOT_CLEAR',
+          remarks: 'Library book has not been returned',
+        }),
+      }),
+    ]),
+  );
+
+  // 9. Initial PENDING creation event is available in history.
+  const creationHistory = await request(app)
+    .get('/api/v1/clearance/history')
+    .query({
+      studentId: String(ssismStudent._id),
+      status: 'PENDING',
+      page: 1,
+      limit: 10,
+    })
+    .set(departmentHeaders);
+
+  expect(creationHistory.status).toBe(200);
+
+  expect(creationHistory.body.data).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        action: 'CREATE',
+        department: expect.objectContaining({ name: 'Library' }),
+        current: expect.objectContaining({ status: 'PENDING' }),
+      }),
+    ]),
+  );
+});
+
+test('Department In-charge cannot access institute-wide applications or student profiles', async () => {
+  const applications = await request(app)
+    .get('/api/v1/clearance/applications')
+    .set(departmentHeaders);
+
+  expect(applications.status).toBe(403);
+
+  const studentProfile = await request(app)
+    .get(`/api/v1/clearance/students/${ssismStudent._id}`)
+    .set(departmentHeaders);
+
+  expect(studentProfile.status).toBe(403);
+});
+
+test('Department In-charge without exactly one department assignment is denied', async () => {
+  const departmentRole = world.roles.SSISM['Department In-charge'];
+
+  const unassignedHeaders = await setRoleHeaders(world.users.ssismAdmin, departmentRole, []);
+
+  const unassignedQueue = await request(app).get('/api/v1/clearance/queue').set(unassignedHeaders);
+
+  expect(unassignedQueue.status).toBe(403);
+
+  const unassignedApplications = await request(app)
+    .get('/api/v1/clearance/applications')
+    .set(unassignedHeaders);
+
+  expect(unassignedApplications.status).toBe(403);
+
+  const unassignedStudentProfile = await request(app)
+    .get(`/api/v1/clearance/students/${ssismStudent._id}`)
+    .set(unassignedHeaders);
+
+  expect(unassignedStudentProfile.status).toBe(403);
+
+  const unassignedAccounts = await request(app)
+    .get('/api/v1/clearance/accounts/pending-dues')
+    .set(unassignedHeaders);
+
+  expect(unassignedAccounts.status).toBe(403);
+
+  const multipleDepartmentHeaders = await setRoleHeaders(world.users.ssismAdmin, departmentRole, [
+    world.departments.SSISM._id,
+    sportsDepartment._id,
+  ]);
+
+  const multipleDepartmentQueue = await request(app)
+    .get('/api/v1/clearance/queue')
+    .set(multipleDepartmentHeaders);
+
+  expect(multipleDepartmentQueue.status).toBe(403);
+});

@@ -123,6 +123,16 @@ async function checkAccessData(req, { roleId, departmentIds }) {
     ]);
   }
   checkGrantable(req, role.permissions);
+
+  if (departmentIds.length > 1) {
+    throw ApiError.badRequest('Please correct the highlighted fields', [
+      {
+        field: 'departmentIds',
+        message: 'A Department In-charge can be assigned to only one department',
+      },
+    ]);
+  }
+
   if (departmentIds.length > 0) {
     const instituteIds = await ownerInstituteIds(req);
     const found = await Department.countDocuments({

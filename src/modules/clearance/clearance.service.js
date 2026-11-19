@@ -3,9 +3,11 @@ import { Department } from '../institutes/department.model.js';
 
 import { ClearanceApplication } from './clearanceApplication.model.js';
 import { ClearanceItem } from './clearanceItem.model.js';
+import { AuditLog } from '../audit/auditLog.model.js';
 
 import { CLEARANCE_STATUSES } from '../../constants/clearanceStatuses.js';
 import { AUDIT_ACTIONS } from '../../constants/auditActions.js';
+import { PERMISSIONS } from '../../constants/permissions.js';
 
 import { ApiError } from '../../utils/ApiError.js';
 import { scoped } from '../../utils/scoped.js';
@@ -91,6 +93,11 @@ export async function createApplication(req, data) {
       session,
     );
 
+    // Record the initial PENDING state for every department item.
+    for (const item of items) {
+      await audit(req, AUDIT_ACTIONS.CREATE, 'clearance_item', item._id, null, item, session);
+    }
+
     // Return application and department-wise initial status.
     return {
       application: application.toObject(),
@@ -105,6 +112,7 @@ export async function createApplication(req, data) {
 
 // CLR-02: List clearance applications with student and department-wise status.
 export async function listApplications(req) {
+  ensureNotDepartmentQueueOnly(req);
   const { search, sort, page, limit, studentId, fromDate, toDate } = req.query;
 
   const scope = scoped(req);
@@ -273,16 +281,39 @@ export async function listApplications(req) {
 function getAssignedDepartmentIds(req) {
   const departmentIds = req.scope.departmentIds ?? [];
 
-  if (departmentIds.length === 0) {
-    throw ApiError.forbidden('You are not assigned to any clearance department');
+  if (departmentIds.length !== 1) {
+    throw ApiError.forbidden(
+      'Department In-charge must be assigned to exactly one clearance department',
+    );
   }
 
   return departmentIds;
 }
 
+// Department in-charge uses department-scoped APIs only.
+function ensureNotDepartmentQueueOnly(req) {
+  const departmentIds = req.scope.departmentIds ?? [];
+  const permissions = req.scope.permissions ?? [];
+
+  const hasTcAccess =
+    permissions.includes(PERMISSIONS.TC_READ) || permissions.includes(PERMISSIONS.TC_APPLY);
+
+  if (departmentIds.length > 0 || !hasTcAccess) {
+    throw ApiError.forbidden('Your role cannot access institute-wide clearance records');
+  }
+}
+
 // Accounts users are not assigned department queues.
 function ensureAccountsAccess(req) {
-  if ((req.scope.departmentIds ?? []).length > 0) {
+  const departmentIds = req.scope.departmentIds ?? [];
+  const permissions = req.scope.permissions ?? [];
+
+  const hasAccountsAccess =
+    permissions.includes(PERMISSIONS.COURSE_READ) ||
+    permissions.includes(PERMISSIONS.TC_READ) ||
+    permissions.includes(PERMISSIONS.TC_APPLY);
+
+  if (departmentIds.length > 0 || !hasAccountsAccess) {
     throw ApiError.forbidden('Department in-charge cannot manage accounts dues');
   }
 }
@@ -363,7 +394,8 @@ async function enrichClearanceItems(req, items) {
 
 // CLR-03: Department in-charge sees only their assigned department queue.
 export async function listDepartmentQueue(req) {
-  const { search, sort, page, limit, status, departmentId, fromDate, toDate } = req.query;
+  const { search, sort, page, limit, status, departmentId, dateFrom, dateTo, fromDate, toDate } =
+    req.query;
 
   const assignedIds = getAssignedDepartmentIds(req);
   const scope = scoped(req);
@@ -381,7 +413,7 @@ export async function listDepartmentQueue(req) {
     filter.status = status;
   }
 
-  const dateRange = buildDateRange(fromDate, toDate);
+  const dateRange = buildDateRange(dateFrom ?? fromDate, dateTo ?? toDate);
   if (dateRange) {
     filter.createdAt = dateRange;
   }
@@ -411,6 +443,256 @@ export async function listDepartmentQueue(req) {
   const rows = await enrichClearanceItems(req, items);
 
   return { rows, meta: { page, limit, total } };
+}
+
+// Department in-charge: count pending clearance items.
+export async function getDepartmentPendingCount(req) {
+  const assignedIds = getAssignedDepartmentIds(req);
+
+  const pendingCount = await ClearanceItem.countDocuments({
+    ...scoped(req),
+    departmentId: { $in: assignedIds },
+    status: CLEARANCE_STATUSES.PENDING,
+  });
+
+  return { pendingCount };
+}
+
+// Department in-charge: fetch application details for assigned departments only.
+export async function getDepartmentApplicationDetails(req, clearanceApplicationId) {
+  const assignedIds = getAssignedDepartmentIds(req);
+  const scope = scoped(req);
+
+  const application = await ClearanceApplication.findOne({
+    ...scope,
+    _id: clearanceApplicationId,
+  }).lean();
+
+  if (!application) {
+    throw ApiError.notFound('Clearance application not found');
+  }
+
+  const items = await ClearanceItem.find({
+    ...scope,
+    applicationId: application._id,
+    departmentId: { $in: assignedIds },
+  })
+    .sort({ createdAt: 1 })
+    .lean();
+
+  if (items.length === 0) {
+    throw ApiError.notFound('Clearance application not found in your assigned department queue');
+  }
+
+  const [student, departments] = await Promise.all([
+    Student.findOne({
+      ...scope,
+      _id: application.studentId,
+    })
+      .select('name scholarNo rollNo enrollmentNo courseId branch batch status')
+      .lean(),
+
+    Department.find({
+      ...scope,
+      _id: { $in: items.map((item) => item.departmentId) },
+    })
+      .select('name order mandatory')
+      .lean(),
+  ]);
+
+  const departmentMap = new Map(
+    departments.map((department) => [String(department._id), department]),
+  );
+
+  const documentsEnclosed = application.documentsEnclosed ?? {};
+
+  return {
+    application: {
+      _id: application._id,
+      studentId: application.studentId,
+      lastClassAttended: application.lastClassAttended,
+      leavingReason: application.leavingReason,
+      documentsEnclosed,
+      submittedDocuments: Object.entries(documentsEnclosed)
+        .filter(([, submitted]) => submitted === true)
+        .map(([documentName]) => documentName),
+      declarations: application.declarations ?? {},
+      submittedAt: application.createdAt,
+    },
+    student,
+    departmentClearances: items.map((item) => {
+      const department = departmentMap.get(String(item.departmentId));
+
+      return {
+        clearanceItemId: item._id,
+        department: department
+          ? {
+              _id: department._id,
+              name: department.name,
+              order: department.order,
+              mandatory: department.mandatory,
+            }
+          : null,
+        verificationStatus: item.status,
+        remarks: item.remark,
+        amountDue: item.amountDue,
+        verifiedBy: item.statusUpdatedBy,
+        verifiedAt: item.statusUpdatedAt,
+      };
+    }),
+  };
+}
+
+// Department in-charge: list append-only clearance audit history.
+export async function listDepartmentHistory(req) {
+  const assignedIds = getAssignedDepartmentIds(req);
+
+  const { page, limit, studentId, status, dateFrom, dateTo } = req.query;
+
+  const filter = {
+    ...scoped(req),
+    entity: 'clearance_item',
+    action: {
+      $in: [AUDIT_ACTIONS.CREATE, AUDIT_ACTIONS.UPDATE],
+    },
+    'after.departmentId': { $in: assignedIds },
+  };
+
+  if (studentId) {
+    // Resolve the ID through the scoped Student model.
+    // AuditLog.after is Mixed, so nested ObjectId values need explicit resolution.
+    const student = await Student.findOne({
+      ...scoped(req),
+      _id: studentId,
+    })
+      .select('_id')
+      .lean();
+
+    if (!student) {
+      return { rows: [], meta: { page, limit, total: 0 } };
+    }
+
+    filter['after.studentId'] = student._id;
+  }
+
+  if (status) {
+    filter['after.status'] = status;
+  }
+
+  const dateRange = buildDateRange(dateFrom, dateTo);
+
+  if (dateRange) {
+    filter.at = dateRange;
+  }
+
+  const skip = (page - 1) * limit;
+
+  const [logs, total] = await Promise.all([
+    AuditLog.find(filter)
+      .populate({
+        path: 'userId',
+        select: 'name email',
+        match: { tenantId: req.scope.tenantId },
+      })
+      .sort({ at: -1, _id: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+
+    AuditLog.countDocuments(filter),
+  ]);
+
+  const studentIds = [
+    ...new Set(
+      logs
+        .map((log) => log.after?.studentId ?? log.before?.studentId)
+        .filter(Boolean)
+        .map(String),
+    ),
+  ];
+
+  const departmentIds = [
+    ...new Set(
+      logs
+        .map((log) => log.after?.departmentId ?? log.before?.departmentId)
+        .filter(Boolean)
+        .map(String),
+    ),
+  ];
+
+  const [students, departments] = await Promise.all([
+    Student.find({
+      ...scoped(req),
+      _id: { $in: studentIds },
+    })
+      .select('name scholarNo rollNo enrollmentNo')
+      .lean(),
+
+    Department.find({
+      ...scoped(req),
+      _id: { $in: departmentIds },
+    })
+      .select('name')
+      .lean(),
+  ]);
+
+  const studentMap = new Map(students.map((student) => [String(student._id), student]));
+
+  const departmentMap = new Map(
+    departments.map((department) => [String(department._id), department]),
+  );
+
+  const rows = logs.map((log) => {
+    const previous = log.before ?? null;
+    const current = log.after ?? null;
+
+    const studentIdValue = current?.studentId ?? previous?.studentId;
+
+    const departmentIdValue = current?.departmentId ?? previous?.departmentId;
+
+    const actor = log.userId;
+
+    return {
+      historyId: log._id,
+      clearanceItemId: log.entityId,
+      action: log.action,
+
+      student: studentMap.get(String(studentIdValue)) ?? null,
+
+      department: departmentMap.get(String(departmentIdValue)) ?? null,
+
+      previous: previous
+        ? {
+            status: previous.status ?? null,
+            remarks: previous.remark ?? '',
+            amountDue: previous.amountDue ?? 0,
+          }
+        : null,
+
+      current: current
+        ? {
+            status: current.status ?? null,
+            remarks: current.remark ?? '',
+            amountDue: current.amountDue ?? 0,
+          }
+        : null,
+
+      performedBy: actor
+        ? {
+            id: actor._id,
+            name: actor.name,
+            email: actor.email,
+          }
+        : null,
+
+      timestamp: log.at,
+    };
+  });
+
+  return {
+    rows,
+    meta: { page, limit, total },
+  };
 }
 
 // Calculate one overall clearance status from department-wise statuses.
@@ -443,7 +725,16 @@ export async function updateClearanceItem(req, itemId, changes) {
 
   const before = item.toObject();
 
-  item.status = changes.status;
+  const nextStatus = changes.status ?? item.status;
+  const nextRemark = changes.remark !== undefined ? changes.remark : item.remark;
+
+  if (nextStatus === CLEARANCE_STATUSES.NOT_CLEAR && !nextRemark?.trim()) {
+    throw ApiError.badRequest('A reason is required when clearance is marked NOT_CLEAR');
+  }
+
+  if (changes.status !== undefined) {
+    item.status = changes.status;
+  }
 
   if (changes.remark !== undefined) {
     item.remark = changes.remark;
@@ -453,8 +744,11 @@ export async function updateClearanceItem(req, itemId, changes) {
     item.amountDue = changes.amountDue;
   }
 
-  item.statusUpdatedBy = req.user.id;
-  item.statusUpdatedAt = new Date();
+  if (changes.status !== undefined || changes.remark !== undefined) {
+    item.statusUpdatedBy = req.user.id;
+    item.statusUpdatedAt = new Date();
+  }
+
   item.updatedBy = req.user.id;
 
   await item.save();
@@ -466,6 +760,7 @@ export async function updateClearanceItem(req, itemId, changes) {
 
 // CLR-04: Get one student's clearance profile and all applications.
 export async function getStudentClearance(req, studentId) {
+  ensureNotDepartmentQueueOnly(req);
   const scope = scoped(req);
 
   const student = await Student.findOne({

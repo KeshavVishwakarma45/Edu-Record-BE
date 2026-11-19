@@ -11,15 +11,27 @@ import {
   listClearanceApplicationsQuery,
   listClearanceQueueQuery,
   listPendingDuesQuery,
+  listDepartmentHistoryQuery,
   updateClearanceItemSchema,
   updateClearanceDuesSchema,
   clearanceItemIdParams,
   clearanceStudentIdParams,
+  clearanceApplicationIdParams,
 } from './clearance.validation.js';
 
 import * as controller from './clearance.controller.js';
 
 const router = Router();
+
+// Department in-charge: application details from assigned department.
+router.get(
+  '/applications/:clearanceApplicationId',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.CLEARANCE_VIEW),
+  validate({ params: clearanceApplicationIdParams }),
+  controller.getDepartmentApplicationDetails,
+);
 
 // CLR-02: List TC clearance applications.
 router.get(
@@ -31,6 +43,15 @@ router.get(
   controller.listApplications,
 );
 
+// Department in-charge: pending clearance count.
+router.get(
+  '/queue/pending-count',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.CLEARANCE_VIEW),
+  controller.getDepartmentPendingCount,
+);
+
 // CLR-03: Department's assigned clearance queue.
 router.get(
   '/queue',
@@ -39,6 +60,16 @@ router.get(
   requirePermission(PERMISSIONS.CLEARANCE_VIEW),
   validate({ query: listClearanceQueueQuery }),
   controller.listDepartmentQueue,
+);
+
+// Department in-charge: clearance history.
+router.get(
+  '/history',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.CLEARANCE_VIEW),
+  validate({ query: listDepartmentHistoryQuery }),
+  controller.listDepartmentHistory,
 );
 
 // CLR-03: Update department clearance status.

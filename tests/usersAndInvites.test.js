@@ -196,3 +196,17 @@ test('inviting someone who already has access here is a 409', async () => {
     });
   expect(res.status).toBe(409);
 });
+
+test('Department In-charge cannot be invited with multiple departments', async () => {
+  const res = await request(app)
+    .post('/api/v1/users/invite')
+    .set(ssismAdmin)
+    .send({
+      name: 'Multiple Department In-charge',
+      email: 'multi.department@ssism.test',
+      roleId: String(world.roles.SSISM['Department In-charge']._id),
+      departmentIds: [String(world.departments.SSISM._id), String(world.departments.SSEC._id)],
+    });
+
+  expect(res.status).toBe(400);
+});

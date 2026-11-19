@@ -3,7 +3,7 @@ import { email, objectId, mobile, listQuery } from '../../utils/validators.js';
 
 const accessFields = {
   roleId: objectId().required().label('Role'),
-  departmentIds: Joi.array().items(objectId()).unique().default([]).label('Departments'),
+  departmentIds: Joi.array().items(objectId()).unique().max(1).default([]).label('Departments'),
 };
 
 export const inviteSchema = Joi.object({

@@ -51,3 +51,27 @@ export const updateClearanceDues = asyncHandler(async (req, res) => {
 
   sendSuccess(res, result);
 });
+
+// Department in-charge: get pending clearance count.
+export const getDepartmentPendingCount = asyncHandler(async (req, res) => {
+  const result = await clearanceService.getDepartmentPendingCount(req);
+
+  sendSuccess(res, result);
+});
+
+// Department in-charge: get application details for assigned department only.
+export const getDepartmentApplicationDetails = asyncHandler(async (req, res) => {
+  const result = await clearanceService.getDepartmentApplicationDetails(
+    req,
+    req.params.clearanceApplicationId,
+  );
+
+  sendSuccess(res, result);
+});
+
+// Department in-charge: get clearance history.
+export const listDepartmentHistory = asyncHandler(async (req, res) => {
+  const { rows, meta } = await clearanceService.listDepartmentHistory(req);
+
+  sendList(res, rows, meta);
+});
