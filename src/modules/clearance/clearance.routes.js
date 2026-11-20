@@ -11,6 +11,7 @@ import {
   listClearanceApplicationsQuery,
   listClearanceQueueQuery,
   listPendingDuesQuery,
+  listAccountsHistoryQuery,
   listDepartmentHistoryQuery,
   updateClearanceItemSchema,
   updateClearanceDuesSchema,
@@ -93,6 +94,25 @@ router.get(
   requirePermission(PERMISSIONS.CLEARANCE_VIEW),
   validate({ params: clearanceStudentIdParams }),
   controller.getStudentClearance,
+);
+
+// CLR-05: Accounts audit history.
+router.get(
+  '/accounts/history',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.CLEARANCE_ACT),
+  validate({ query: listAccountsHistoryQuery }),
+  controller.listAccountsHistory,
+);
+
+// CLR-05: Accounts pending dues count.
+router.get(
+  '/accounts/pending-count',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.CLEARANCE_ACT),
+  controller.getAccountsPendingCount,
 );
 
 // CLR-05: Accounts pending dues list.

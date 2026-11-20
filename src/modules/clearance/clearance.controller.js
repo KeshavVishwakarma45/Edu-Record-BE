@@ -45,6 +45,20 @@ export const listPendingDues = asyncHandler(async (req, res) => {
   sendList(res, rows, meta);
 });
 
+// CLR-05: Accounts clearance audit history.
+export const listAccountsHistory = asyncHandler(async (req, res) => {
+  const { rows, meta } = await clearanceService.listAccountsHistory(req);
+
+  sendList(res, rows, meta);
+});
+
+// CLR-05: Accounts pending dues count.
+export const getAccountsPendingCount = asyncHandler(async (req, res) => {
+  const result = await clearanceService.getAccountsPendingCount(req);
+
+  sendSuccess(res, result);
+});
+
 // CLR-05: Update accounts dues.
 export const updateClearanceDues = asyncHandler(async (req, res) => {
   const result = await clearanceService.updateClearanceDues(req, req.params.itemId, req.body);

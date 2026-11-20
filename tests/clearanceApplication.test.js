@@ -21,6 +21,8 @@ let ssecStudent;
 let departmentHeaders;
 let sportsDepartment;
 let sportsItem;
+let accountsDepartment;
+let accountsItem;
 
 const applicationBody = {
   lastClassAttended: 'B.Tech 4th Year',
@@ -391,6 +393,30 @@ test('Accounts can view and update pending dues, while department in-charge cann
     world.roles.SSISM.Accounts,
   );
 
+  const application = await ClearanceApplication.findOne({
+    tenantId: world.tenantId,
+    instituteId: world.institutes.ssism._id,
+    studentId: ssismStudent._id,
+  }).lean();
+
+  expect(application).not.toBeNull();
+
+  accountsDepartment = await Department.create({
+    tenantId: world.tenantId,
+    instituteId: world.institutes.ssism._id,
+    name: 'Accounts Department',
+  });
+
+  accountsItem = await ClearanceItem.create({
+    tenantId: world.tenantId,
+    instituteId: world.institutes.ssism._id,
+    applicationId: application._id,
+    studentId: ssismStudent._id,
+    departmentId: accountsDepartment._id,
+    status: 'PENDING',
+    amountDue: 450,
+  });
+
   const pendingDues = await request(app)
     .get('/api/v1/clearance/accounts/pending-dues')
     .query({ search: 'CLR001' })
@@ -398,14 +424,33 @@ test('Accounts can view and update pending dues, while department in-charge cann
 
   expect(pendingDues.status).toBe(200);
 
+  expect(pendingDues.body.data).toHaveLength(1);
+
+  expect(pendingDues.body.data.every((item) => item.departmentName === 'Accounts Department')).toBe(
+    true,
+  );
+
   expect(pendingDues.body.data).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
         amountDue: 450,
-        departmentName: 'Sports',
+        departmentName: 'Accounts Department',
       }),
     ]),
   );
+
+  const pendingCount = await request(app)
+    .get('/api/v1/clearance/accounts/pending-count')
+    .set(accountsHeaders);
+
+  expect(pendingCount.status).toBe(200);
+  expect(pendingCount.body.data.pendingCount).toBe(1);
+
+  const forbiddenCount = await request(app)
+    .get('/api/v1/clearance/accounts/pending-count')
+    .set(departmentHeaders);
+
+  expect(forbiddenCount.status).toBe(403);
 
   const forbiddenDues = await request(app)
     .get('/api/v1/clearance/accounts/pending-dues')
@@ -413,8 +458,22 @@ test('Accounts can view and update pending dues, while department in-charge cann
 
   expect(forbiddenDues.status).toBe(403);
 
-  const update = await request(app)
+  const forbiddenDuesUpdate = await request(app)
+    .patch(`/api/v1/clearance/items/${accountsItem._id}/dues`)
+    .set(departmentHeaders)
+    .send({ amountDue: 0 });
+
+  expect(forbiddenDuesUpdate.status).toBe(403);
+
+  const forbiddenSportsUpdate = await request(app)
     .patch(`/api/v1/clearance/items/${sportsItem._id}/dues`)
+    .set(accountsHeaders)
+    .send({ amountDue: 0 });
+
+  expect(forbiddenSportsUpdate.status).toBe(404);
+
+  const update = await request(app)
+    .patch(`/api/v1/clearance/items/${accountsItem._id}/dues`)
     .set(accountsHeaders)
     .send({
       amountDue: 0,
@@ -432,6 +491,199 @@ test('Accounts can view and update pending dues, while department in-charge cann
 
   expect(afterUpdate.status).toBe(200);
   expect(afterUpdate.body.data).toHaveLength(0);
+
+  const countAfterPayment = await request(app)
+    .get('/api/v1/clearance/accounts/pending-count')
+    .set(accountsHeaders);
+
+  expect(countAfterPayment.status).toBe(200);
+  expect(countAfterPayment.body.data.pendingCount).toBe(0);
+});
+
+test('Accounts can process only Accounts Department clearance', async () => {
+  const application = await ClearanceApplication.findOne({
+    tenantId: world.tenantId,
+    instituteId: world.institutes.ssism._id,
+    studentId: ssismStudent._id,
+  }).lean();
+
+  expect(application).not.toBeNull();
+
+  expect(accountsDepartment).toBeDefined();
+  expect(accountsItem).toBeDefined();
+
+  const accountsHeaders = await setRoleHeaders(
+    world.users.ssismPrincipal,
+    world.roles.SSISM.Accounts,
+  );
+
+  // Accounts can mark its own department CLEAR.
+  const clearResponse = await request(app)
+    .patch(`/api/v1/clearance/items/${accountsItem._id}`)
+    .set(accountsHeaders)
+    .send({ status: 'CLEAR' });
+
+  expect(clearResponse.status).toBe(200);
+  expect(clearResponse.body.data.status).toBe('CLEAR');
+
+  // NOT_CLEAR requires a remark.
+  const missingRemarkResponse = await request(app)
+    .patch(`/api/v1/clearance/items/${accountsItem._id}`)
+    .set(accountsHeaders)
+    .send({ status: 'NOT_CLEAR' });
+
+  expect(missingRemarkResponse.status).toBe(400);
+
+  // Accounts can update status, remark and pending amount.
+  const notClearResponse = await request(app)
+    .patch(`/api/v1/clearance/items/${accountsItem._id}`)
+    .set(accountsHeaders)
+    .send({
+      status: 'NOT_CLEAR',
+      remark: 'Outstanding fees pending',
+      amountDue: 1250.75,
+    });
+
+  expect(notClearResponse.status).toBe(200);
+  expect(notClearResponse.body.data).toMatchObject({
+    status: 'NOT_CLEAR',
+    remark: 'Outstanding fees pending',
+    amountDue: 1250.75,
+  });
+
+  // Accounts cannot update Sports clearance.
+  const accountsSportsResponse = await request(app)
+    .patch(`/api/v1/clearance/items/${sportsItem._id}`)
+    .set(accountsHeaders)
+    .send({ status: 'CLEAR' });
+
+  expect(accountsSportsResponse.status).toBe(404);
+
+  // Department In-charge assigned to Library cannot update Accounts clearance.
+  const departmentAccountsResponse = await request(app)
+    .patch(`/api/v1/clearance/items/${accountsItem._id}`)
+    .set(departmentHeaders)
+    .send({ status: 'CLEAR' });
+
+  expect(departmentAccountsResponse.status).toBe(404);
+
+  // Prepare a clearance item belonging to SSEC.
+  const ssecApplication = await ClearanceApplication.create({
+    tenantId: world.tenantId,
+    instituteId: world.institutes.ssec._id,
+    studentId: ssecStudent._id,
+    lastClassAttended: applicationBody.lastClassAttended,
+    leavingReason: applicationBody.leavingReason,
+    documentsEnclosed: applicationBody.documentsEnclosed,
+    declarations: applicationBody.declarations,
+  });
+
+  const ssecItem = await ClearanceItem.create({
+    tenantId: world.tenantId,
+    instituteId: world.institutes.ssec._id,
+    applicationId: ssecApplication._id,
+    studentId: ssecStudent._id,
+    departmentId: world.departments.SSEC._id,
+    status: 'PENDING',
+    amountDue: 1000,
+  });
+
+  // SSISM Accounts cannot update an SSEC record.
+  const crossInstituteResponse = await request(app)
+    .patch(`/api/v1/clearance/items/${ssecItem._id}`)
+    .set(accountsHeaders)
+    .send({ status: 'CLEAR' });
+
+  expect(crossInstituteResponse.status).toBe(404);
+
+  // SSISM Accounts cannot switch to an institute without access.
+  const switchedInstituteResponse = await request(app)
+    .patch(`/api/v1/clearance/items/${ssecItem._id}`)
+    .set({
+      ...accountsHeaders,
+      'X-Institute-Id': String(world.institutes.ssec._id),
+    })
+    .send({ status: 'CLEAR' });
+
+  expect(switchedInstituteResponse.status).toBe(403);
+});
+
+test('Accounts history is limited to Accounts Department and supports filters', async () => {
+  const accountsHeaders = await setRoleHeaders(
+    world.users.ssismPrincipal,
+    world.roles.SSISM.Accounts,
+  );
+
+  // Create an auditable Accounts Department update.
+  const update = await request(app)
+    .patch(`/api/v1/clearance/items/${accountsItem._id}`)
+    .set(accountsHeaders)
+    .send({
+      remark: 'Accounts history test update',
+      amountDue: 888.25,
+    });
+
+  expect(update.status).toBe(200);
+
+  const history = await request(app)
+    .get('/api/v1/clearance/accounts/history')
+    .query({
+      studentId: String(ssismStudent._id),
+      status: 'NOT_CLEAR',
+      page: 1,
+      limit: 10,
+    })
+    .set(accountsHeaders);
+
+  expect(history.status).toBe(200);
+  expect(history.body.success).toBe(true);
+  expect(history.body.meta.total).toBeGreaterThanOrEqual(1);
+
+  expect(history.body.data.every((row) => row.department?.name === 'Accounts Department')).toBe(
+    true,
+  );
+
+  expect(history.body.data).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        department: expect.objectContaining({
+          name: 'Accounts Department',
+        }),
+        current: expect.objectContaining({
+          status: 'NOT_CLEAR',
+          remarks: 'Accounts history test update',
+          amountDue: 888.25,
+        }),
+        performedBy: expect.objectContaining({
+          name: expect.any(String),
+          email: expect.any(String),
+        }),
+        timestamp: expect.any(String),
+      }),
+    ]),
+  );
+
+  // Department In-charge cannot read institute-level Accounts history.
+  const departmentResponse = await request(app)
+    .get('/api/v1/clearance/accounts/history')
+    .set(departmentHeaders);
+
+  expect(departmentResponse.status).toBe(403);
+
+  // TC Clerk does not have the required clearance action permission.
+  const tcClerkResponse = await request(app).get('/api/v1/clearance/accounts/history').set(headers);
+
+  expect(tcClerkResponse.status).toBe(403);
+
+  // Accounts cannot switch to an institute without access.
+  const crossInstituteResponse = await request(app)
+    .get('/api/v1/clearance/accounts/history')
+    .set({
+      ...accountsHeaders,
+      'X-Institute-Id': String(world.institutes.ssec._id),
+    });
+
+  expect(crossInstituteResponse.status).toBe(403);
 });
 
 test('Department In-charge APIs are department-scoped and record history', async () => {
