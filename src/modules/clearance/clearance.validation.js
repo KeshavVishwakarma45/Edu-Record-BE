@@ -98,3 +98,14 @@ export const listPendingDuesQuery = listQuery(['createdAt', 'updatedAt', 'amount
   fromDate: Joi.date().iso().raw(),
   toDate: Joi.date().iso().raw(),
 });
+
+// CLR-05: Accounts audit history filters.
+export const listAccountsHistoryQuery = Joi.object({
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(100).default(20),
+  search: Joi.string().trim().max(100),
+  studentId: objectId().allow(''),
+  status: Joi.string().valid(...CLEARANCE_STATUS_LIST),
+  dateFrom: Joi.date().iso().raw(),
+  dateTo: Joi.date().iso().raw(),
+}).unknown(false);

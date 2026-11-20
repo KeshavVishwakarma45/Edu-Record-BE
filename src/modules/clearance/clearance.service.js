@@ -303,19 +303,35 @@ function ensureNotDepartmentQueueOnly(req) {
   }
 }
 
-// Accounts users are not assigned department queues.
+// Accounts users can access institute-level Accounts operations.
+// Department In-charge users are restricted to their assigned department.
 function ensureAccountsAccess(req) {
   const departmentIds = req.scope.departmentIds ?? [];
   const permissions = req.scope.permissions ?? [];
 
-  const hasAccountsAccess =
-    permissions.includes(PERMISSIONS.COURSE_READ) ||
-    permissions.includes(PERMISSIONS.TC_READ) ||
-    permissions.includes(PERMISSIONS.TC_APPLY);
+  const hasAccountsPermissions =
+    permissions.includes(PERMISSIONS.CLEARANCE_ACT) &&
+    permissions.includes(PERMISSIONS.COURSE_READ);
 
-  if (departmentIds.length > 0 || !hasAccountsAccess) {
-    throw ApiError.forbidden('Department in-charge cannot manage accounts dues');
+  if (departmentIds.length > 0 || !hasAccountsPermissions) {
+    throw ApiError.forbidden('Your role cannot manage institute-level Accounts operations');
   }
+}
+
+// Recognize the Accounts department using its configured department name.
+const ACCOUNTS_DEPARTMENT_NAME = /^accounts?(?:[\s._-]*(?:department|dept))?[\s.]*$/i;
+
+function isAccountsDepartmentName(name) {
+  return ACCOUNTS_DEPARTMENT_NAME.test(String(name ?? '').trim());
+}
+
+async function findAccountsDepartment(req) {
+  return Department.findOne({
+    ...scoped(req),
+    name: ACCOUNTS_DEPARTMENT_NAME,
+  })
+    .select('_id name')
+    .lean();
 }
 
 // Build a date range for list filters.
@@ -695,6 +711,192 @@ export async function listDepartmentHistory(req) {
   };
 }
 
+// CLR-05: Accounts can view only Accounts Department audit history.
+export async function listAccountsHistory(req) {
+  ensureAccountsAccess(req);
+
+  const scope = scoped(req);
+  const accountsDepartment = await findAccountsDepartment(req);
+
+  if (!accountsDepartment) {
+    throw ApiError.conflict('Accounts department is not configured for this institute');
+  }
+
+  const { page, limit, search, studentId, status, dateFrom, dateTo } = req.query;
+
+  const filter = {
+    ...scope,
+    entity: 'clearance_item',
+    action: {
+      $in: [AUDIT_ACTIONS.CREATE, AUDIT_ACTIONS.UPDATE],
+    },
+    'after.departmentId': accountsDepartment._id,
+  };
+
+  // Optional student ID filter.
+  let matchingStudents = null;
+
+  if (studentId) {
+    const student = await Student.findOne({
+      ...scope,
+      _id: studentId,
+    })
+      .select('_id')
+      .lean();
+
+    if (!student) {
+      return { rows: [], meta: { page, limit, total: 0 } };
+    }
+
+    matchingStudents = [student];
+  }
+
+  // Optional student name, scholar number or roll number search.
+  if (search) {
+    const searchedStudents = await Student.find({
+      ...scope,
+      ...searchFilter(search, ['name', 'scholarNo', 'rollNo']),
+    })
+      .select('_id')
+      .lean();
+
+    if (matchingStudents) {
+      const searchedIds = new Set(searchedStudents.map((student) => String(student._id)));
+
+      matchingStudents = matchingStudents.filter((student) => searchedIds.has(String(student._id)));
+    } else {
+      matchingStudents = searchedStudents;
+    }
+  }
+
+  if (matchingStudents) {
+    if (matchingStudents.length === 0) {
+      return { rows: [], meta: { page, limit, total: 0 } };
+    }
+
+    filter['after.studentId'] = {
+      $in: matchingStudents.map((student) => student._id),
+    };
+  }
+
+  if (status) {
+    filter['after.status'] = status;
+  }
+
+  const dateRange = buildDateRange(dateFrom, dateTo);
+
+  if (dateRange) {
+    filter.at = dateRange;
+  }
+
+  const skip = (page - 1) * limit;
+
+  const [logs, total] = await Promise.all([
+    AuditLog.find(filter)
+      .populate({
+        path: 'userId',
+        select: 'name email',
+        match: { tenantId: req.scope.tenantId },
+      })
+      .sort({ at: -1, _id: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+
+    AuditLog.countDocuments(filter),
+  ]);
+
+  const studentIds = [
+    ...new Set(
+      logs
+        .map((log) => log.after?.studentId ?? log.before?.studentId)
+        .filter(Boolean)
+        .map(String),
+    ),
+  ];
+
+  const departmentIds = [
+    ...new Set(
+      logs
+        .map((log) => log.after?.departmentId ?? log.before?.departmentId)
+        .filter(Boolean)
+        .map(String),
+    ),
+  ];
+
+  const [students, departments] = await Promise.all([
+    Student.find({
+      ...scope,
+      _id: { $in: studentIds },
+    })
+      .select('name scholarNo rollNo enrollmentNo')
+      .lean(),
+
+    Department.find({
+      ...scope,
+      _id: { $in: departmentIds },
+    })
+      .select('name')
+      .lean(),
+  ]);
+
+  const studentMap = new Map(students.map((student) => [String(student._id), student]));
+
+  const departmentMap = new Map(
+    departments.map((department) => [String(department._id), department]),
+  );
+
+  const rows = logs.map((log) => {
+    const previous = log.before ?? null;
+    const current = log.after ?? null;
+
+    const studentIdValue = current?.studentId ?? previous?.studentId;
+    const departmentIdValue = current?.departmentId ?? previous?.departmentId;
+    const actor = log.userId;
+
+    return {
+      historyId: log._id,
+      clearanceItemId: log.entityId,
+      action: log.action,
+
+      student: studentMap.get(String(studentIdValue)) ?? null,
+
+      department: departmentMap.get(String(departmentIdValue)) ?? null,
+
+      previous: previous
+        ? {
+            status: previous.status ?? null,
+            remarks: previous.remark ?? '',
+            amountDue: previous.amountDue ?? 0,
+          }
+        : null,
+
+      current: current
+        ? {
+            status: current.status ?? null,
+            remarks: current.remark ?? '',
+            amountDue: current.amountDue ?? 0,
+          }
+        : null,
+
+      performedBy: actor
+        ? {
+            id: actor._id,
+            name: actor.name,
+            email: actor.email,
+          }
+        : null,
+
+      timestamp: log.at,
+    };
+  });
+
+  return {
+    rows,
+    meta: { page, limit, total },
+  };
+}
+
 // Calculate one overall clearance status from department-wise statuses.
 function calculateOverallStatus(items) {
   if (items.some((item) => item.status === CLEARANCE_STATUSES.NOT_CLEAR)) {
@@ -708,19 +910,62 @@ function calculateOverallStatus(items) {
   return CLEARANCE_STATUSES.CLEAR;
 }
 
-// CLR-03: Department in-charge updates their own clearance item.
+// CLR-03: Department In-charge updates assigned clearance.
+// Accounts/Admin updates Accounts Department clearance only.
 export async function updateClearanceItem(req, itemId, changes) {
   ensureSuperAdminReadOnly(req);
-  const assignedIds = getAssignedDepartmentIds(req);
 
+  const scope = scoped(req);
+  const assignedIds = req.scope.departmentIds ?? [];
+
+  let departmentFilter;
+  let notFoundMessage;
+
+  // Department In-charge workflow.
+  if (assignedIds.length > 0) {
+    const departmentIds = getAssignedDepartmentIds(req);
+
+    const assignedDepartment = await Department.findOne({
+      ...scope,
+      _id: departmentIds[0],
+    })
+      .select('name')
+      .lean();
+
+    if (!assignedDepartment) {
+      throw ApiError.forbidden('Your assigned department is not available');
+    }
+
+    // Accounts Department must be handled by Accounts only.
+    if (isAccountsDepartmentName(assignedDepartment.name)) {
+      throw ApiError.forbidden('Accounts Department clearance can only be processed by Accounts');
+    }
+
+    departmentFilter = { $in: departmentIds };
+    notFoundMessage = 'Clearance item not found in your assigned department';
+  } else {
+    // Accounts/Admin workflow.
+    ensureAccountsAccess(req);
+
+    const accountsDepartment = await findAccountsDepartment(req);
+
+    if (!accountsDepartment) {
+      throw ApiError.conflict('Accounts department is not configured for this institute');
+    }
+
+    departmentFilter = accountsDepartment._id;
+    notFoundMessage = 'Accounts clearance item not found in this institute';
+  }
+
+  // Institute-scoped lookup prevents cross-institute updates.
   const item = await ClearanceItem.findOne({
-    ...scoped(req),
+    ...scope,
     _id: itemId,
-    departmentId: { $in: assignedIds },
+    departmentId: departmentFilter,
   });
 
   if (!item) {
-    throw ApiError.notFound('Clearance item not found in your assigned departments');
+    throw ApiError.notFound(notFoundMessage);
   }
 
   const before = item.toObject();
@@ -753,6 +998,7 @@ export async function updateClearanceItem(req, itemId, changes) {
 
   await item.save();
 
+  // Record status, amount and remark changes in audit history.
   await audit(req, AUDIT_ACTIONS.UPDATE, 'clearance_item', item._id, before, item);
 
   return item;
@@ -830,31 +1076,32 @@ export async function getStudentClearance(req, studentId) {
   return { student, applications: result };
 }
 
-// CLR-05: Accounts can view all clearance items with an outstanding amount.
+// CLR-05: Accounts can view outstanding dues from Accounts Department only.
 export async function listPendingDues(req) {
   ensureAccountsAccess(req);
 
-  const { search, sort, page, limit, departmentId, fromDate, toDate } = req.query;
   const scope = scoped(req);
+  const accountsDepartment = await findAccountsDepartment(req);
+
+  if (!accountsDepartment) {
+    throw ApiError.conflict('Accounts department is not configured for this institute');
+  }
+
+  const { search, sort, page, limit, departmentId, fromDate, toDate } = req.query;
+
+  // Prevent Accounts users from selecting other department dues.
+  if (departmentId && String(departmentId) !== String(accountsDepartment._id)) {
+    throw ApiError.badRequest('Accounts users can only view Accounts Department dues');
+  }
+
   const filter = {
     ...scope,
+    departmentId: accountsDepartment._id,
     amountDue: { $gt: 0 },
   };
 
-  if (departmentId) {
-    const departmentExists = await Department.exists({
-      ...scope,
-      _id: departmentId,
-    });
-
-    if (!departmentExists) {
-      throw ApiError.badRequest('Choose a department of the selected institute');
-    }
-
-    filter.departmentId = departmentId;
-  }
-
   const dateRange = buildDateRange(fromDate, toDate);
+
   if (dateRange) {
     filter.createdAt = dateRange;
   }
@@ -871,13 +1118,16 @@ export async function listPendingDues(req) {
       return { rows: [], meta: { page, limit, total: 0 } };
     }
 
-    filter.studentId = { $in: matchingStudents.map((student) => student._id) };
+    filter.studentId = {
+      $in: matchingStudents.map((student) => student._id),
+    };
   }
 
   const { skip } = pageOptions(req.query);
 
   const [items, total] = await Promise.all([
     ClearanceItem.find(filter).sort(sortOption(sort)).skip(skip).limit(limit).lean(),
+
     ClearanceItem.countDocuments(filter),
   ]);
 
@@ -885,24 +1135,53 @@ export async function listPendingDues(req) {
 
   return { rows, meta: { page, limit, total } };
 }
+
+// CLR-05: Count outstanding dues in Accounts Department only.
+export async function getAccountsPendingCount(req) {
+  ensureAccountsAccess(req);
+
+  const scope = scoped(req);
+  const accountsDepartment = await findAccountsDepartment(req);
+
+  if (!accountsDepartment) {
+    throw ApiError.conflict('Accounts department is not configured for this institute');
+  }
+
+  const pendingCount = await ClearanceItem.countDocuments({
+    ...scope,
+    departmentId: accountsDepartment._id,
+    amountDue: { $gt: 0 },
+  });
+
+  return { pendingCount };
+}
+
 // Super Admin can monitor clearance data but cannot perform operational updates.
 function ensureSuperAdminReadOnly(req) {
   if (req.user?.isSuperAdmin) {
     throw ApiError.forbidden('Super Admin has view-only access to clearance');
   }
 }
-// CLR-05: Accounts manually updates the outstanding amount and remark.
+// CLR-05: Accounts updates dues for Accounts Department only.
 export async function updateClearanceDues(req, itemId, changes) {
   ensureSuperAdminReadOnly(req);
   ensureAccountsAccess(req);
 
+  const scope = scoped(req);
+  const accountsDepartment = await findAccountsDepartment(req);
+
+  if (!accountsDepartment) {
+    throw ApiError.conflict('Accounts department is not configured for this institute');
+  }
+
   const item = await ClearanceItem.findOne({
-    ...scoped(req),
+    ...scope,
     _id: itemId,
+    departmentId: accountsDepartment._id,
   });
 
   if (!item) {
-    throw ApiError.notFound('Clearance item not found');
+    throw ApiError.notFound('Accounts clearance item not found in this institute');
   }
 
   const before = item.toObject();
