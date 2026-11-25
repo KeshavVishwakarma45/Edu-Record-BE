@@ -12,6 +12,7 @@ import { GENDERS } from '../src/constants/genders.js';
 import { startDb, stopDb } from './helpers/db.js';
 import { createWorld, headersFor } from './helpers/fixtures.js';
 import { Department } from '../src/modules/institutes/department.model.js';
+
 const app = createApp();
 
 let world;
@@ -56,6 +57,7 @@ async function createStudent(instituteCode, scholarNo) {
     courseId: world.courses[instituteCode]._id,
   });
 }
+
 async function setRoleHeaders(user, role, departmentIds = []) {
   user.access[0].roleId = role._id;
   user.access[0].departmentIds = departmentIds;
@@ -64,6 +66,7 @@ async function setRoleHeaders(user, role, departmentIds = []) {
 
   return headersFor(app, user, world.institutes.ssism);
 }
+
 beforeAll(async () => {
   await startDb();
 
@@ -830,6 +833,19 @@ test('Department In-charge APIs are department-scoped and record history', async
       }),
     ]),
   );
+
+  // 10. Marking CLEAR should remove the previous remark.
+  const markClear = await request(app)
+    .patch(`/api/v1/clearance/items/${libraryItem._id}`)
+    .set(departmentHeaders)
+    .send({
+      status: 'CLEAR',
+      remark: '',
+    });
+
+  expect(markClear.status).toBe(200);
+  expect(markClear.body.data.status).toBe('CLEAR');
+  expect(markClear.body.data.remark).toBe('');
 });
 
 test('Department In-charge cannot access institute-wide applications or student profiles', async () => {
