@@ -35,7 +35,7 @@ export const updateClearanceItemSchema = Joi.object({
   remark: Joi.when('status', {
     is: 'NOT_CLEAR',
     then: Joi.string().trim().min(1).max(500).required(),
-    otherwise: Joi.string().trim().max(500),
+    otherwise: Joi.string().trim().allow('').max(500),
   }),
 
   amountDue: Joi.number().min(0).precision(2),
