@@ -91,8 +91,6 @@ pendingRouter.get(
   controller.getPending,
 );
 
-export default router;
-
 // List all inward batches
 router.get(
   '/',
@@ -155,3 +153,5 @@ router.post(
   validate({ body: createInwardBatchSchema }),
   controller.create,
 );
+
+export default router;

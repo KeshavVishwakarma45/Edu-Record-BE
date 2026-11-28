@@ -1,5 +1,8 @@
 import { InwardBatch, InwardDocument } from './inward.model.js';
 import { Student } from '../students/student.model.js';
+import { Course } from '../courses/course.model.js';
+import { Affiliation } from '../institutes/affiliation.model.js';
+import { File } from '../files/file.model.js';
 
 import { scoped } from '../../utils/scoped.js';
 import { findScopedOr404 } from '../../utils/findScoped.js';
@@ -8,6 +11,7 @@ import { audit } from '../../utils/audit.js';
 import { AUDIT_ACTIONS } from '../../constants/auditActions.js';
 import { DOCUMENT_STATUSES } from '../../constants/statuses.js';
 import { searchFilter, sortOption, pageOptions } from '../../utils/listQuery.js';
+import { withTransaction } from '../../utils/transaction.js';
 
 const ENTITY = 'inward document';
 
@@ -34,43 +38,66 @@ export async function getStudents(req, id) {
 export async function createReceipt(req, batchId, data) {
   const batch = await findScopedOr404(req, InwardBatch, batchId, 'inward batch');
 
-  const document = await InwardDocument.findOne({
-    ...scoped(req),
-    batchId: batch._id,
-    studentId: data.studentId,
-    documentType: batch.documentType,
-  });
-
-  if (!document) {
-    throw ApiError.notFound('Expected student document not found');
-  }
-
-  if (document.status !== DOCUMENT_STATUSES.EXPECTED) {
-    throw ApiError.conflict('This document is not in Expected status');
-  }
-
-  const before = document.toObject();
-
-  document.status = DOCUMENT_STATUSES.IN_CUSTODY;
-  document.receivedBy = req.user.id;
-  document.custodyDate = new Date();
+  const updateFields = {
+    status: DOCUMENT_STATUSES.IN_CUSTODY,
+    receivedBy: req.user.id,
+    custodyDate: new Date(),
+    updatedBy: req.user.id,
+  };
 
   if (data.documentSerialNo !== undefined) {
-    document.documentSerialNo = data.documentSerialNo;
+    updateFields.documentSerialNo = data.documentSerialNo;
   }
 
   if (data.storageLocation) {
-    document.storageLocation = {
+    updateFields.storageLocation = {
       almirah: data.storageLocation.almirah ?? '',
       fileNo: data.storageLocation.fileNo ?? '',
     };
   }
 
-  await document.save();
+  // Atomic status check and update to prevent race conditions (INW-4 / SEC-17)
+  const document = await InwardDocument.findOneAndUpdate(
+    {
+      ...scoped(req),
+      batchId: batch._id,
+      studentId: data.studentId,
+      documentType: batch.documentType,
+      status: DOCUMENT_STATUSES.EXPECTED,
+    },
+    {
+      $set: updateFields,
+    },
+    {
+      returnDocument: 'before',
+    },
+  );
 
-  await audit(req, AUDIT_ACTIONS.UPDATE, ENTITY, document._id, before, document);
+  if (!document) {
+    const existing = await InwardDocument.findOne({
+      ...scoped(req),
+      batchId: batch._id,
+      studentId: data.studentId,
+      documentType: batch.documentType,
+    });
+    if (!existing) {
+      throw ApiError.notFound('Expected student document not found');
+    }
+    throw ApiError.conflict('This document is not in Expected status');
+  }
 
-  return document;
+  const before = document.toObject();
+  const after = {
+    ...before,
+    ...updateFields,
+  };
+
+  await audit(req, AUDIT_ACTIONS.UPDATE, ENTITY, document._id, before, after);
+
+  return InwardDocument.findOne({
+    ...scoped(req),
+    _id: document._id,
+  }).lean();
 }
 
 // API 7: Update received document details
@@ -293,60 +320,150 @@ export async function getById(req, id) {
 
 // POST create a new inward batch
 export async function create(req, data) {
-  const scope = scoped(req);
+  // 1. INW-3: Validate Course belongs to current institute
+  const course = await Course.findOne({
+    ...scoped(req),
+    _id: data.courseId,
+  }).lean();
 
-  const batch = await InwardBatch.create({
-    ...data,
-    tenantId: scope.tenantId,
-    instituteId: scope.instituteId,
-    receivedBy: req.user.id,
-    createdBy: req.user.id,
-    updatedBy: req.user.id,
+  if (!course) {
+    throw ApiError.badRequest('Please correct the highlighted fields', [
+      { field: 'courseId', message: 'Choose a course of this institute' },
+    ]);
+  }
+
+  // 2. INW-3: Validate University is affiliated with this institute
+  const affiliation = await Affiliation.findOne({
+    ...scoped(req),
+    universityId: data.universityId,
+  }).lean();
+
+  if (!affiliation) {
+    throw ApiError.badRequest('Please correct the highlighted fields', [
+      { field: 'universityId', message: 'Choose a university affiliated with this institute' },
+    ]);
+  }
+
+  // Verify course belongs to this university affiliation
+  if (String(course.affiliationId) !== String(affiliation._id)) {
+    throw ApiError.badRequest('Please correct the highlighted fields', [
+      { field: 'universityId', message: 'Course does not belong to this university' },
+    ]);
+  }
+
+  // 3. INW-3: If coveringLetterFileId is passed, verify it belongs to this institute
+  if (data.coveringLetterFileId) {
+    const fileExists = await File.exists({
+      ...scoped(req),
+      _id: data.coveringLetterFileId,
+    });
+    if (!fileExists) {
+      throw ApiError.badRequest('Please correct the highlighted fields', [
+        { field: 'coveringLetterFileId', message: 'Choose a file of this institute' },
+      ]);
+    }
+  }
+
+  // 4. INW-1 & INW-2: Create Batch, Expected Documents and Audit atomically in a transaction
+  const createdBatch = await withTransaction(async (session) => {
+    // a. Create the inward batch document
+    const [batch] = await InwardBatch.create(
+      [
+        {
+          ...data,
+          receivedBy: req.user.id,
+          createdBy: req.user.id,
+          updatedBy: req.user.id,
+          ...scoped(req), // scoped spread last so body cannot override tenant/institute
+        },
+      ],
+      { session },
+    );
+
+    // b. INW-1: Find eligible students for this batch's course & university
+    const students = await Student.find({
+      ...scoped(req),
+      courseId: data.courseId,
+      universityId: data.universityId,
+      deletedAt: null,
+    })
+      .select('_id')
+      .session(session)
+      .lean();
+
+    // c. INW-1: Create an InwardDocument with status 'Expected' for each student
+    if (students.length > 0) {
+      const documentRows = students.map((s) => ({
+        batchId: batch._id,
+        studentId: s._id,
+        documentType: batch.documentType,
+        status: DOCUMENT_STATUSES.EXPECTED,
+        createdBy: req.user.id,
+        updatedBy: req.user.id,
+        ...scoped(req),
+      }));
+
+      // Ordered: true as required by Mongoose inside transaction
+      await InwardDocument.create(documentRows, { session, ordered: true });
+    }
+
+    // d. INW-2: Audit log for batch creation
+    await audit(req, AUDIT_ACTIONS.CREATE, 'inward batch', batch._id, null, batch, session);
+
+    return batch;
   });
 
+  // 5. Return populated batch
   return InwardBatch.findOne({
-    _id: batch._id,
-    ...scope,
+    _id: createdBatch._id,
+    ...scoped(req),
   })
     .populate('universityId', 'name shortCode')
     .populate({
       path: 'receivedBy',
       select: 'name',
-      match: { tenantId: scope.tenantId },
+      match: { tenantId: req.scope.tenantId },
     })
     .lean();
 }
 
-// GET inward batch document counts
+// GET inward batch document counts (INW-7: aggregate + $group by status)
 export async function getCounts(req, id) {
-  await findScopedOr404(req, InwardBatch, id, 'inward batch');
+  const batch = await findScopedOr404(req, InwardBatch, id, 'inward batch');
 
-  const filter = {
-    ...scoped(req),
-    batchId: id,
-  };
-
-  const [expected, received, missing] = await Promise.all([
-    InwardDocument.countDocuments({
-      ...filter,
-      status: DOCUMENT_STATUSES.EXPECTED,
-    }),
-
-    InwardDocument.countDocuments({
-      ...filter,
-      status: DOCUMENT_STATUSES.IN_CUSTODY,
-    }),
-
-    InwardDocument.countDocuments({
-      ...filter,
-      status: DOCUMENT_STATUSES.NOT_RECEIVED,
-    }),
+  const countsByStatus = await InwardDocument.aggregate([
+    {
+      $match: {
+        ...scoped(req),
+        batchId: batch._id,
+      },
+    },
+    {
+      $group: {
+        _id: '$status',
+        count: { $sum: 1 },
+      },
+    },
   ]);
+
+  const map = Object.fromEntries(countsByStatus.map((c) => [c._id, c.count]));
+
+  const expected = map[DOCUMENT_STATUSES.EXPECTED] || 0;
+  const received = map[DOCUMENT_STATUSES.IN_CUSTODY] || 0;
+  const missing = map[DOCUMENT_STATUSES.NOT_RECEIVED] || 0;
+  const issued = map[DOCUMENT_STATUSES.ISSUED] || 0;
+  const returnedToUniversity = map[DOCUMENT_STATUSES.RETURNED_TO_UNIVERSITY] || 0;
+  const cancelled = map[DOCUMENT_STATUSES.CANCELLED] || 0;
+  const total = expected + received + missing + issued + returnedToUniversity + cancelled;
 
   return {
     expected,
     received,
     missing,
+    issued,
+    returnedToUniversity,
+    cancelled,
+    total,
   };
 }
 
@@ -355,15 +472,8 @@ export async function markDocumentMissing(req, batchId, data) {
   // 1. Find the batch inside the selected institute
   const batch = await findScopedOr404(req, InwardBatch, batchId, 'inward batch');
 
-  // 2. Find the student inside the selected institute
-  const student = await Student.findOne({
-    _id: data.studentId,
-    ...scoped(req),
-  });
-
-  if (!student) {
-    throw ApiError.notFound('Student not found');
-  }
+  // 2. SEC-19: Find the student using findScopedOr404 to ensure access-denied is audited
+  const student = await findScopedOr404(req, Student, data.studentId, 'student');
 
   // 3. Verify student's course and university match the batch
   if (
@@ -373,53 +483,68 @@ export async function markDocumentMissing(req, batchId, data) {
     throw ApiError.badRequest('Student does not belong to this batch');
   }
 
-  // 4. Find the existing document record
-  const documentFilter = {
-    ...scoped(req),
-    batchId: batch._id,
-    studentId: student._id,
-    documentType: batch.documentType,
+  const updateFields = {
+    status: DOCUMENT_STATUSES.NOT_RECEIVED,
+    missingDetails: {
+      reason: data.reason,
+      otherReason: data.reason === 'OTHER' ? data.otherReason : '',
+      followUpDate: data.followUpDate,
+    },
+    updatedBy: req.user.id,
   };
 
-  const document = await InwardDocument.findOne(documentFilter);
+  // 4. INW-4 / SEC-17: Atomic findOneAndUpdate to prevent status change race condition
+  const document = await InwardDocument.findOneAndUpdate(
+    {
+      ...scoped(req),
+      batchId: batch._id,
+      studentId: student._id,
+      documentType: batch.documentType,
+      status: DOCUMENT_STATUSES.EXPECTED,
+    },
+    {
+      $set: updateFields,
+    },
+    {
+      returnDocument: 'before',
+    },
+  );
 
   if (!document) {
-    throw ApiError.notFound('Expected document record not found');
-  }
-
-  // 5. Only Expected documents can be marked as missing
-  if (document.status !== DOCUMENT_STATUSES.EXPECTED) {
+    const existing = await InwardDocument.findOne({
+      ...scoped(req),
+      batchId: batch._id,
+      studentId: student._id,
+      documentType: batch.documentType,
+    });
+    if (!existing) {
+      throw ApiError.notFound('Expected document record not found');
+    }
     throw ApiError.conflict(
-      `Document cannot be marked missing because its current status is ${document.status}`,
+      `Document cannot be marked missing because its current status is ${existing.status}`,
     );
   }
 
-  // 6. Keep the previous data for the audit log
   const before = document.toObject();
-
-  // 7. Update the existing document
-  document.status = DOCUMENT_STATUSES.NOT_RECEIVED;
-  document.missingDetails = {
-    reason: data.reason,
-    otherReason: data.reason === 'OTHER' ? data.otherReason : '',
-    followUpDate: data.followUpDate,
+  const after = {
+    ...before,
+    ...updateFields,
   };
-  document.updatedBy = req.user.id;
 
-  // 8. Save changes
-  await document.save();
+  // 5. Write audit log
+  await audit(req, AUDIT_ACTIONS.UPDATE, DOCUMENT_ENTITY, document._id, before, after);
 
-  // 9. Write audit log
-  await audit(req, AUDIT_ACTIONS.UPDATE, DOCUMENT_ENTITY, document._id, before, document);
-
-  // 10. Return updated document with student details
-  await document.populate({
-    path: 'studentId',
-    select: 'name rollNo scholarNo enrollmentNo',
-    match: { tenantId: req.scope.tenantId },
-  });
-
-  return document;
+  // 6. Return updated document with student details
+  return InwardDocument.findOne({
+    ...scoped(req),
+    _id: document._id,
+  })
+    .populate({
+      path: 'studentId',
+      select: 'name rollNo scholarNo enrollmentNo',
+      match: { tenantId: req.scope.tenantId },
+    })
+    .lean();
 }
 
 // GET all missing documents for an inward batch

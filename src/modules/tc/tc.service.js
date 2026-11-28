@@ -934,16 +934,27 @@ export async function createTC(req, body) {
 
   // 5. Create TC in draft status and link the clearance application.
   // Spread scoped(req) last to enforce tenant isolation.
-  const tc = await TC.create({
-    studentId: student._id,
-    clearanceApplicationId: eligibility.clearanceApplicationId,
-    reasonForLeaving,
-    conduct,
-    status: 'draft',
-    createdBy: getActorId(req),
-    updatedBy: getActorId(req),
-    ...scoped(req),
-  });
+  let tc;
+  try {
+    tc = await TC.create({
+      studentId: student._id,
+      clearanceApplicationId: eligibility.clearanceApplicationId,
+      reasonForLeaving,
+      conduct,
+      status: 'draft',
+      createdBy: getActorId(req),
+      updatedBy: getActorId(req),
+      ...scoped(req),
+    });
+  } catch (err) {
+    // 11000 = MongoDB "duplicate key": index ne doosra TC rok diya
+    if (err.code === 11000) {
+      throw ApiError.conflict(
+        'A Transfer Certificate draft or record already exists for this student',
+      );
+    }
+    throw err;
+  }
 
   // 6. Record creation in audit log.
   await audit(req, AUDIT_ACTIONS.CREATE, 'tc', tc._id, null, tc);
@@ -1016,7 +1027,36 @@ export async function getTCById(req, id) {
   // 1. Find TC within current institute scope.
   const tc = await findTc(req, id);
 
-  // 2. Fetch student and course preview data.
+  // TC-15 / BR-13: Return frozen snapshot data if TC is approved or issued
+  if (['approved', 'issued'].includes(tc.status) && tc.snapshot) {
+    const s = tc.snapshot;
+    return {
+      tc: {
+        _id: tc._id,
+        studentId: tc.studentId,
+        reasonForLeaving: tc.reasonForLeaving,
+        conduct: tc.conduct,
+        status: tc.status,
+        refNo: tc.refNo,
+        bookSerial: tc.bookSerial,
+        approvedAt: tc.approvedAt,
+        approvedBy: tc.approvedBy,
+        issuedAt: tc.issuedAt,
+        createdAt: tc.createdAt,
+        updatedAt: tc.updatedAt,
+      },
+      student: s.student ?? {},
+      course: s.course ?? {},
+      institute: s.institute ?? {},
+      academicDetails: s.academicDetails ?? {},
+      academicDetailsAvailable: Boolean(s.academicDetails),
+      clearanceSummary: s.clearanceSummary ?? null,
+      clearanceCheckAvailable: true,
+      snapshot: tc.snapshot,
+    };
+  }
+
+  // 2. Otherwise fetch live student and course preview data (for drafts).
   const preview = await getTCData(req, tc.studentId);
 
   // 3. Return combined details.

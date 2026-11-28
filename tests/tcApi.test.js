@@ -18,7 +18,11 @@ const app = createApp();
 
 let world;
 let tcClerkHeaders;
-let ssecTcClerkHeaders;
+// NOTE (TC-4): this is the ADMIN user of SSEC, not a TC clerk. The old name
+// `ssecTcClerkHeaders` was misleading. It is only used to prove that another
+// institute cannot see or edit an SSISM TC (404 tests).
+// TODO: if the fixtures get a real SSEC TC clerk, switch to it.
+let ssecAdminHeaders;
 let ssismStudent;
 let ssecStudent;
 
@@ -58,10 +62,15 @@ async function createStudent(instituteCode, scholarNo) {
 
 beforeAll(async () => {
   await startDb();
+
+  // Make sure MongoDB has built every index (including the partial unique
+  // index that stops two active TCs for one student, TC-2) before any test runs.
+  await TC.init();
+
   world = await createWorld();
 
   tcClerkHeaders = await headersFor(app, world.users.ssismTcClerk, world.institutes.ssism);
-  ssecTcClerkHeaders = await headersFor(app, world.users.admin, world.institutes.ssec);
+  ssecAdminHeaders = await headersFor(app, world.users.admin, world.institutes.ssec);
 
   ssismStudent = await createStudent('SSISM', 'TC-STU-001');
   ssecStudent = await createStudent('SSEC', 'TC-STU-002');
@@ -175,6 +184,50 @@ describe('POST /api/v1/tcs', () => {
     expect(res.body.error.message).toMatch(/already exists/i);
   });
 
+  // TC-2: the normal duplicate test above only covers "one request after
+  // another". This one fires two requests AT THE SAME TIME (double click).
+  // Without the unique index, both pass the findOne check and two TCs are saved.
+  test('creates only ONE TC when two create requests arrive at the same time', async () => {
+    const raceStudent = await createStudent('SSISM', 'TC-RACE-001');
+
+    // The student needs a clearance application, and every item must be CLEAR.
+    const appRes = await request(app)
+      .post('/api/v1/clearance/applications')
+      .set(tcClerkHeaders)
+      .send({
+        ...applicationBody,
+        studentId: String(raceStudent._id),
+      });
+    expect(appRes.status).toBe(201);
+
+    await ClearanceItem.updateMany(
+      { tenantId: world.tenantId, studentId: raceStudent._id },
+      { status: CLEARANCE_STATUSES.CLEAR },
+    );
+
+    const body = {
+      studentId: String(raceStudent._id),
+      reasonForLeaving: 'Course Completed',
+      conduct: 'Good',
+    };
+
+    // Promise.all starts both requests together (a "double click").
+    const [first, second] = await Promise.all([
+      request(app).post('/api/v1/tcs').set(tcClerkHeaders).send(body),
+      request(app).post('/api/v1/tcs').set(tcClerkHeaders).send(body),
+    ]);
+
+    // One must win (201), the other must be refused as a conflict (409).
+    expect([first.status, second.status].sort()).toEqual([201, 409]);
+
+    // And the database must really hold only one active TC for this student.
+    const count = await TC.countDocuments({
+      tenantId: world.tenantId,
+      studentId: raceStudent._id,
+    });
+    expect(count).toBe(1);
+  });
+
   test('rejects TC creation for a student from another institute', async () => {
     const res = await request(app)
       .post('/api/v1/tcs')
@@ -253,8 +306,33 @@ describe('GET /api/v1/tcs/:id', () => {
     expect(clearanceSummary.isEligible).toBe(true);
   });
 
+  test('returns frozen snapshot data for approved TC (TC-15, BR-13)', async () => {
+    const snapshotData = {
+      student: { name: 'Frozen Student Name', scholarNo: 'FROZEN-001' },
+      course: { name: 'Frozen Course', shortCode: 'FC' },
+      institute: { name: 'SSISM' },
+    };
+
+    await TC.findOneAndUpdate(
+      { tenantId: world.tenantId, _id: createdTcId },
+      { status: 'approved', snapshot: snapshotData },
+    );
+
+    const res = await request(app).get(`/api/v1/tcs/${createdTcId}`).set(tcClerkHeaders);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.student.name).toBe('Frozen Student Name');
+    expect(res.body.data.student.scholarNo).toBe('FROZEN-001');
+
+    // Restore to draft for subsequent tests
+    await TC.findOneAndUpdate(
+      { tenantId: world.tenantId, _id: createdTcId },
+      { status: 'draft', snapshot: null },
+    );
+  });
+
   test('returns 404 when retrieving TC from another institute scope', async () => {
-    const res = await request(app).get(`/api/v1/tcs/${createdTcId}`).set(ssecTcClerkHeaders);
+    const res = await request(app).get(`/api/v1/tcs/${createdTcId}`).set(ssecAdminHeaders);
 
     expect(res.status).toBe(404);
     expect(res.body.success).toBe(false);
@@ -350,12 +428,9 @@ describe('PATCH /api/v1/tcs/:id', () => {
   });
 
   test('rejects update from another institute scope with 404', async () => {
-    const res = await request(app)
-      .patch(`/api/v1/tcs/${createdTcId}`)
-      .set(ssecTcClerkHeaders)
-      .send({
-        conduct: 'Hacked',
-      });
+    const res = await request(app).patch(`/api/v1/tcs/${createdTcId}`).set(ssecAdminHeaders).send({
+      conduct: 'Hacked',
+    });
 
     expect(res.status).toBe(404);
   });
@@ -386,5 +461,22 @@ describe('GET /api/v1/tcs', () => {
       page: 1,
       limit: 10,
     });
+  });
+});
+
+// -------------------------------------------------------------------
+// 5. TC Approval Permission Check (TC-4, AC-13)
+// -------------------------------------------------------------------
+
+describe('POST /api/v1/tcs/:id/approve', () => {
+  test('clerk without TC_APPROVE permission cannot approve a TC (returns 403)', async () => {
+    const existing = await TC.findOne({
+      tenantId: world.tenantId,
+      studentId: ssismStudent._id,
+    }).lean();
+
+    const res = await request(app).post(`/api/v1/tcs/${existing._id}/approve`).set(tcClerkHeaders);
+
+    expect(res.status).toBe(403);
   });
 });

@@ -157,12 +157,15 @@ const tcSchema = new mongoose.Schema(
 );
 
 // Fast institute-wise status queues
-tcSchema.index({
-  tenantId: 1,
-  instituteId: 1,
-  status: 1,
-  createdAt: -1,
-});
+tcSchema.index(
+  { tenantId: 1, instituteId: 1, studentId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      status: { $in: ['draft', 'submitted', 'pending_approval', 'approved'] },
+    },
+  },
+);
 
 // Tenant-level isolation
 tcSchema.plugin(tenantGuard);

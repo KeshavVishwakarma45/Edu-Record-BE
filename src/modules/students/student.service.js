@@ -68,7 +68,12 @@ export async function list(req) {
   const { skip } = pageOptions(req.query);
 
   const [rows, total] = await Promise.all([
-    Student.find(filter).sort(sortOption(sort)).skip(skip).limit(limit).lean(),
+    Student.find(filter)
+      .select('_id scholarNo enrollmentNo rollNo name fatherName mobile status')
+      .sort(sortOption(sort))
+      .skip(skip)
+      .limit(limit)
+      .lean(),
     Student.countDocuments(filter),
   ]);
 
