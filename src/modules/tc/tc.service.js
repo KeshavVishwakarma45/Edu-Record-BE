@@ -678,12 +678,13 @@ export async function history(req, id) {
     .populate({
       path: 'userId',
       select: 'name email',
-      match: { tenantId: req.scope.tenantId },
+      match: scoped(req),
     })
     .sort({ at: 1 })
     .lean();
 
   return logs.map((log) => ({
+    _id: log._id,
     action: log.action,
 
     performedBy: log.userId
@@ -967,36 +968,43 @@ export async function createTC(req, body) {
 // Fetches TC records with pagination, search and status filter.
 // -------------------------------------------------------------------
 
-export async function listTCs(req) {
-  const { search, sort, page, limit, status } = req.query;
+export const listTCs = async (req) => {
+  const page = Math.max(1, Number.parseInt(req.query?.page, 10) || 1);
 
-  // Base filter: current tenant and institute only.
+  const limit = Math.min(100, Math.max(1, Number.parseInt(req.query?.limit, 10) || 10));
+
+  const sort = req.query?.sort || '-createdAt';
+  const search = String(req.query?.search || '').trim();
+
+  const { skip } = pageOptions({ page, limit });
+
   const filter = {
     ...scoped(req),
   };
 
-  // Optional status filter.
-  if (status) {
-    filter.status = status;
+  // Status filter
+  if (req.query?.status) {
+    filter.status = req.query.status;
   }
 
-  // Search in student details, TC reference number and book serial.
+  // Search by student details, reference number and book serial
   if (search) {
     const matchingStudents = await Student.find({
       ...scoped(req),
       deletedAt: null,
-      ...searchFilter(search, ['name', 'scholarNo', 'enrollmentNo', 'rollNo']),
-    }).distinct('_id');
+      ...searchFilter(search, ['name', 'scholarNo', 'enrollmentNo']),
+    })
+      .select('_id')
+      .lean();
 
-    const tcSearch = searchFilter(search, ['refNo', 'bookSerial']);
+    const studentIds = matchingStudents.map((student) => student._id);
 
-    filter.$or = [...(tcSearch.$or || []), { studentId: { $in: matchingStudents } }];
+    filter.$or = [
+      ...searchFilter(search, ['refNo', 'bookSerial']).$or,
+      { studentId: { $in: studentIds } },
+    ];
   }
 
-  // Pagination.
-  const { skip } = pageOptions(req.query);
-
-  // Fetch records and total count.
   const [rows, total] = await Promise.all([
     TC.find(filter)
       .sort(sortOption(sort))
@@ -1004,8 +1012,13 @@ export async function listTCs(req) {
       .limit(limit)
       .populate({
         path: 'studentId',
-        select: 'name scholarNo enrollmentNo rollNo courseId',
+        select: 'name scholarNo enrollmentNo rollNo courseId academicYear',
         match: scoped(req),
+        populate: {
+          path: 'courseId',
+          select: 'name shortCode branch',
+          match: scoped(req),
+        },
       })
       .lean(),
 
@@ -1014,9 +1027,14 @@ export async function listTCs(req) {
 
   return {
     rows,
-    meta: { page, limit, total },
+    meta: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
   };
-}
+};
 
 // -------------------------------------------------------------------
 // getTCById(req, id)

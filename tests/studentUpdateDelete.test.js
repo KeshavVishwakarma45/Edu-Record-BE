@@ -1,8 +1,10 @@
+import mongoose from 'mongoose';
 import request from 'supertest';
 
 import { createApp } from '../src/app.js';
 
 import { Student } from '../src/modules/students/student.model.js';
+import { TC } from '../src/modules/tc/tc.model.js';
 import { File } from '../src/modules/files/file.model.js';
 import { AuditLog } from '../src/modules/audit/auditLog.model.js';
 
@@ -58,6 +60,19 @@ async function createStudent(overrides = {}, instituteName = 'ssism') {
     admissionDate: new Date('2024-07-01'),
 
     ...overrides,
+  });
+}
+
+// Create a TC record for a student
+async function createTCForStudent(student, status) {
+  return TC.create({
+    tenantId: world.tenantId,
+    instituteId: student.instituteId,
+    studentId: student._id,
+    clearanceApplicationId: new mongoose.Types.ObjectId(),
+    reasonForLeaving: 'Course Completed',
+    conduct: 'Good',
+    status,
   });
 }
 
@@ -123,7 +138,6 @@ test('DELETE soft deletes student and prevents normal profile access', async () 
   expect(response.body.data.deletedAt).toBeTruthy();
   expect(response.body.data.deletedBy).toBeTruthy();
 
-  // Verify student still exists in database
   const savedStudent = await Student.findOne({
     tenantId: world.tenantId,
     _id: student._id,
@@ -131,15 +145,12 @@ test('DELETE soft deletes student and prevents normal profile access', async () 
 
   expect(savedStudent).not.toBeNull();
   expect(savedStudent.deletedAt).toBeTruthy();
-
   expect(String(savedStudent.deletedBy)).toBe(String(world.users.ssismAdmin._id));
 
-  // Deleted student profile must return 404
   const profileResponse = await request(app).get(`/api/v1/students/${student._id}`).set(headers);
 
   expect(profileResponse.status).toBe(404);
 
-  // Deleted student must not appear in listing
   const listingResponse = await request(app)
     .get('/api/v1/students')
     .query({ search: student.scholarNo })
@@ -148,12 +159,10 @@ test('DELETE soft deletes student and prevents normal profile access', async () 
   expect(listingResponse.status).toBe(200);
   expect(listingResponse.body.data).toHaveLength(0);
 
-  // Repeated deletion must return 404
   const secondDelete = await request(app).delete(`/api/v1/students/${student._id}`).set(headers);
 
   expect(secondDelete.status).toBe(404);
 
-  // Only one DELETE audit entry should exist
   const deleteAudit = await AuditLog.find({
     tenantId: world.tenantId,
     entity: 'student',
@@ -164,7 +173,51 @@ test('DELETE soft deletes student and prevents normal profile access', async () 
   expect(deleteAudit).toHaveLength(1);
 });
 
-// TEST 4: Institute Scope Validation
+// TEST 4: Active or issued TC blocks student deletion
+test.each(['draft', 'submitted', 'pending_approval', 'approved', 'issued'])(
+  'DELETE rejects student deletion when TC status is %s',
+  async (status) => {
+    const student = await createStudent();
+
+    await createTCForStudent(student, status);
+
+    const response = await request(app).delete(`/api/v1/students/${student._id}`).set(headers);
+
+    expect(response.status).toBe(409);
+    expect(response.body.success).toBe(false);
+
+    // Tenant-scoped query: tenantId is required by tenantGuard
+    const savedStudent = await Student.findOne({
+      tenantId: world.tenantId,
+      _id: student._id,
+    }).lean();
+
+    expect(savedStudent).not.toBeNull();
+    expect(savedStudent.deletedAt).toBeNull();
+  },
+);
+
+// TEST 5: Rejected TC allows student deletion
+test('DELETE allows student deletion when all TC applications are rejected', async () => {
+  const student = await createStudent();
+
+  await createTCForStudent(student, 'rejected');
+
+  const response = await request(app).delete(`/api/v1/students/${student._id}`).set(headers);
+
+  expect(response.status).toBe(200);
+  expect(response.body.success).toBe(true);
+
+  const savedStudent = await Student.findOne({
+    tenantId: world.tenantId,
+    _id: student._id,
+  }).lean();
+
+  expect(savedStudent).not.toBeNull();
+  expect(savedStudent.deletedAt).toBeTruthy();
+});
+
+// TEST 6: Institute Scope Validation
 test('student from another institute cannot be updated', async () => {
   const student = await createStudent(
     {
@@ -187,7 +240,7 @@ test('student from another institute cannot be updated', async () => {
   expect(savedStudent.name).toBe('SSEC Student');
 });
 
-// TEST 5: Student Photo Replacement
+// TEST 7: Student Photo Replacement
 test('PATCH replaces student photo and removes old photo', async () => {
   const student = await createStudent();
 

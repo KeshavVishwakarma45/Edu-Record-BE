@@ -39,6 +39,16 @@ router.get(
   controller.downloadImportTemplate,
 );
 
+// Distinct batch choices for the Student List filters. Keep this above '/:id'.
+router.get(
+  '/batches',
+  auth,
+  tenantScope,
+  requirePermission(PERMISSIONS.STUDENT_READ),
+  validate({ query: listStudentsQuery }),
+  controller.listBatches,
+);
+
 // Get Student by ID
 router.get(
   '/:id',

@@ -3,13 +3,12 @@ import { Student } from '../students/student.model.js';
 import { Course } from '../courses/course.model.js';
 import { Affiliation } from '../institutes/affiliation.model.js';
 import { File } from '../files/file.model.js';
-
+import { DOCUMENT_STATUSES } from '../../constants/statuses.js';
 import { scoped } from '../../utils/scoped.js';
 import { findScopedOr404 } from '../../utils/findScoped.js';
 import { ApiError } from '../../utils/ApiError.js';
 import { audit } from '../../utils/audit.js';
 import { AUDIT_ACTIONS } from '../../constants/auditActions.js';
-import { DOCUMENT_STATUSES } from '../../constants/statuses.js';
 import { searchFilter, sortOption, pageOptions } from '../../utils/listQuery.js';
 import { withTransaction } from '../../utils/transaction.js';
 
@@ -319,6 +318,7 @@ export async function getById(req, id) {
 }
 
 // POST create a new inward batch
+
 export async function create(req, data) {
   // 1. INW-3: Validate Course belongs to current institute
   const course = await Course.findOne({
@@ -412,7 +412,6 @@ export async function create(req, data) {
 
     return batch;
   });
-
   // 5. Return populated batch
   return InwardBatch.findOne({
     _id: createdBatch._id,
@@ -427,7 +426,8 @@ export async function create(req, data) {
     .lean();
 }
 
-// GET inward batch document counts (INW-7: aggregate + $group by status)
+// GET inward batch document counts
+
 export async function getCounts(req, id) {
   const batch = await findScopedOr404(req, InwardBatch, id, 'inward batch');
 

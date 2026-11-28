@@ -7,7 +7,6 @@ const { ObjectId, Mixed } = mongoose.Schema.Types;
 
 const tcSchema = new mongoose.Schema(
   {
-    // Institute and student
     tenantId: {
       type: ObjectId,
       ref: 'Tenant',
@@ -26,14 +25,12 @@ const tcSchema = new mongoose.Schema(
       required: true,
     },
 
-    // Link this TC to the exact clearance application
     clearanceApplicationId: {
       type: ObjectId,
       ref: 'ClearanceApplication',
       required: true,
     },
 
-    // TC draft details
     reasonForLeaving: {
       type: String,
       trim: true,
@@ -46,22 +43,13 @@ const tcSchema = new mongoose.Schema(
       default: '',
     },
 
-    // TC workflow
     status: {
       type: String,
-      enum: [
-        'draft',
-        'submitted', // legacy status
-        'pending_approval',
-        'approved',
-        'rejected',
-        'issued',
-      ],
+      enum: ['draft', 'submitted', 'pending_approval', 'approved', 'rejected', 'issued'],
       default: 'draft',
       required: true,
     },
 
-    // TC numbering
     refNo: {
       type: String,
       default: null,
@@ -72,7 +60,6 @@ const tcSchema = new mongoose.Schema(
       default: null,
     },
 
-    // Submission
     submittedBy: {
       type: ObjectId,
       ref: 'User',
@@ -84,7 +71,6 @@ const tcSchema = new mongoose.Schema(
       default: null,
     },
 
-    // Principal approval
     approvedBy: {
       type: ObjectId,
       ref: 'User',
@@ -96,7 +82,6 @@ const tcSchema = new mongoose.Schema(
       default: null,
     },
 
-    // Rejection
     rejectedBy: {
       type: ObjectId,
       ref: 'User',
@@ -114,7 +99,6 @@ const tcSchema = new mongoose.Schema(
       default: null,
     },
 
-    // Handover / issue
     handoverPhoto: {
       type: ObjectId,
       ref: 'File',
@@ -145,7 +129,6 @@ const tcSchema = new mongoose.Schema(
       default: null,
     },
 
-    // Immutable student and TC data captured at approval
     snapshot: {
       type: Mixed,
       default: null,
@@ -156,7 +139,7 @@ const tcSchema = new mongoose.Schema(
   },
 );
 
-// Fast institute-wise status queues
+// Fast institute-wise active TC uniqueness
 tcSchema.index(
   { tenantId: 1, instituteId: 1, studentId: 1 },
   {
@@ -167,10 +150,15 @@ tcSchema.index(
   },
 );
 
-// Tenant-level isolation
-tcSchema.plugin(tenantGuard);
+// Fast institute-wise status queues
+tcSchema.index({
+  tenantId: 1,
+  instituteId: 1,
+  status: 1,
+  createdAt: -1,
+});
 
-// Automatically manages createdBy and updatedBy
+tcSchema.plugin(tenantGuard);
 tcSchema.plugin(actorFields);
 
 export const TC = mongoose.model('TC', tcSchema);
