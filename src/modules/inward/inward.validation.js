@@ -82,7 +82,7 @@ export const markMissingDocumentSchema = Joi.object({
     .required(),
   otherReason: Joi.string()
     .trim()
-    .max(200)
+    .max(250)
     .when('reason', {
       is: 'OTHER',
       then: Joi.string().required().min(1),

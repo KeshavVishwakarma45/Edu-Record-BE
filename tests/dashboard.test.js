@@ -141,8 +141,9 @@ beforeAll(async () => {
   const pendingApplication = await createClearanceApplication(ssismStudent);
   await createTc(ssismStudent, pendingApplication, 'pending_approval', 'PENDING');
 
-  const approvedApplication = await createClearanceApplication(ssismStudent);
-  await createTc(ssismStudent, approvedApplication, 'approved', 'APPROVED');
+  const ssismStudent2 = await createStudent('SSISM', 'DASH-SSISM-002');
+  const approvedApplication = await createClearanceApplication(ssismStudent2);
+  await createTc(ssismStudent2, approvedApplication, 'approved', 'APPROVED');
 
   // An issued TC for the recent-TCs endpoint.
   const issuedApplication = await createClearanceApplication(ssismStudent);

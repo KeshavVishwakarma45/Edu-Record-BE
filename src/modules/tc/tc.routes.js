@@ -26,7 +26,7 @@ router.post(
   '/',
   auth,
   tenantScope,
-  requirePermission(PERMISSIONS.TC_APPLY),
+  requirePermission(PERMISSIONS.TC_DRAFT),
   validate({ body: createTcSchema }),
   controller.createTC,
 );
@@ -63,7 +63,7 @@ router.post(
   '/:id/submit',
   auth,
   tenantScope,
-  requirePermission(PERMISSIONS.TC_APPLY),
+  requirePermission(PERMISSIONS.TC_DRAFT),
   validate({ params: tcIdParams, body: submitTcSchema }),
   controller.submit,
 );
@@ -90,7 +90,7 @@ router.get(
   '/:id/pdf',
   auth,
   tenantScope,
-  requirePermission(PERMISSIONS.TC_READ),
+  requirePermission(PERMISSIONS.TC_ISSUE),
   validate({ params: tcIdParams }),
   controller.pdf,
 );
